@@ -1,0 +1,183 @@
+{
+  "app_name": "C1",
+  "personality": "7 Dark-First Utility structure with 6 Glass / Luxe surfaces",
+  "personality_one_liner": "A high-end, data-driven command center that feels more like a premium black-card subscription than a generic fitness tracker.",
+  "color": {
+    "surface": "#0A0A0C",
+    "onSurface": "#F4F4F5",
+    "surfaceSecondary": "#141417",
+    "onSurfaceSecondary": "#D4D4D8",
+    "surfaceTertiary": "#1F1F24",
+    "onSurfaceTertiary": "#A1A1AA",
+    "surfaceInverse": "#FFFFFF",
+    "onSurfaceInverse": "#0A0A0C",
+    "brand": "#D4AF37",
+    "brandPrimary": "#D4AF37",
+    "onBrandPrimary": "#0A0A0C",
+    "brandSecondary": "#B8860B",
+    "onBrandSecondary": "#F4F4F5",
+    "brandTertiary": "#332A0D",
+    "onBrandTertiary": "#E5C158",
+    "success": "#2D5A4C",
+    "onSuccess": "#A7F3D0",
+    "warning": "#78350F",
+    "onWarning": "#FDE68A",
+    "error": "#7F1D1D",
+    "onError": "#FECACA",
+    "info": "#1E3A5F",
+    "onInfo": "#BFDBFE",
+    "border": "#27272A",
+    "borderStrong": "#3F3F46",
+    "divider": "#1F1F24"
+  },
+  "typography": {
+    "displayFontFamily": "Outfit",
+    "textFontFamily": "IBM Plex Sans",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous vertical breathing room for luxury feel, but tight grouping for macro metrics. Never let data feel disconnected from its label.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": "0",
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": true,
+    "do's": [
+      "Use heavy frosted glass on the bottom tab bar to float above scrolling content.",
+      "Use glass for the Scan Meal camera overlay controls (bottom sheet & header).",
+      "Apply glass to the Premium paywall features list to add perceived value."
+    ],
+    "dont's": [
+      "Never blur body text regions or form fields.",
+      "Avoid glassmorphism on dense data lists (like the detailed food diary)."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Onboarding & Goal Setup",
+      "purpose": "Collect stats and calculate BMR/TDEE while establishing the premium €1.99/mo aesthetic.",
+      "states": {
+        "loading": "A sleek, branded spinner calculating AI calorie requirements.",
+        "empty": "N/A",
+        "error": "Failed to calculate stats. Retry button below."
+      },
+      "layout": "Full-bleed background image with a vertical gradient scrim (transparent to surfaceInverse) at the bottom. The CTA sits sticky at the bottom. Single column, centered content for the questions with large touch targets."
+    },
+    {
+      "name": "Dashboard",
+      "purpose": "Command center for the day showing the calorie ring, macro breakdowns, and water tracking.",
+      "states": {
+        "loading": "Skeleton loaders for the calorie ring and macro tiles.",
+        "empty": "Start your day by scanning a meal. Large placeholder illustration in the center.",
+        "error": "Unable to load dashboard data. Pull to refresh."
+      },
+      "layout": "Scrollable view. Compact sticky header with a day selector. Top hero card is a large circular progress ring for calories (BrandPrimary colored). Below it, a 3-column grid for macros (Protein, Carbs, Fat) using compact utility cards. Bottom section has smaller tracking widgets (Water, Streak). Tab bar is fixed."
+    },
+    {
+      "name": "Scan Meal (Camera)",
+      "purpose": "The absolute visual hero of the app. A camera view to instantly recognize food.",
+      "states": {
+        "loading": "Glass overlay showing 'AI is analyzing your meal...' with a subtle scanning line animation.",
+        "empty": "N/A",
+        "error": "Food not recognized. Manual entry button offered."
+      },
+      "layout": "Full-screen camera preview. The top has a glass header with a 'Back/Close' button. The center has a high-contrast targeting frame bracket overlay. The bottom features a large, glassmorphic capture button and a small tip ('Ensure good lighting')."
+    },
+    {
+      "name": "Meal Confirmation",
+      "purpose": "Review AI findings, adjust portion size, and log the meal.",
+      "states": {
+        "loading": "Saving meal to diary...",
+        "empty": "N/A",
+        "error": "Could not log meal. Please try again."
+      },
+      "layout": "Presents as a Bottom Sheet modal over the camera. Top half of the sheet shows a cropped image of the scanned food. Below, a clean list of detected items, a portion slider, and the total macros. A sticky 'Confirm & Log' primary button at the bottom."
+    },
+    {
+      "name": "Food Diary",
+      "purpose": "A structured daily view of Breakfast, Lunch, Dinner, and Snacks.",
+      "states": {
+        "loading": "Skeleton rows for meal items.",
+        "empty": "No meals logged yet today. Tap the scan button to start.",
+        "error": "Unable to load diary. Tap to retry."
+      },
+      "layout": "List layout grouped by meal type (Breakfast, Lunch, etc.). Each group header is sticky. Each logged meal is a horizontal card showing the food name, portion, and calories, with a subtle divider. Total calories for each group shown on the right."
+    },
+    {
+      "name": "AI Assistant & Coach",
+      "purpose": "Chat interface for personalized nutrition advice.",
+      "states": {
+        "loading": "AI typing indicator...",
+        "empty": "Chat starts with a greeting and 3 suggested prompts ('How many calories in an apple?', 'Suggest a high-protein dinner').",
+        "error": "Connection lost. Reconnect to continue chatting."
+      },
+      "layout": "Standard chat interface. Messages from the AI have a subtle surfaceTertiary background. User messages have a brandTertiary background. Input field is sticky at the bottom above the keyboard (KeyboardAvoidingView) with a send icon."
+    },
+    {
+      "name": "Premium Paywall",
+      "purpose": "Convert free users to the €1.99/mo subscription.",
+      "states": {
+        "loading": "Loading subscription plans...",
+        "empty": "N/A",
+        "error": "Unable to load plans. Restore purchases or try again."
+      },
+      "layout": "Cinematic full-bleed background image with heavy glassmorphism. Large 'C1 Premium' heading. A bulleted list of premium features using green success checks. Two prominent plan selection cards (Intro and Standard). Sticky 'Start Premium' button."
+    }
+  ],
+  "images": {
+    "hero_onboarding": {
+      "url": "https://images.unsplash.com/photo-1621494268492-d01b98eba7e4",
+      "alt": "Cinematic dark shot of a person eating from a beautifully plated dish"
+    },
+    "premium_paywall_bg": {
+      "url": "https://images.unsplash.com/photo-1648235692910-947cb90ddd97?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NjV8MHwxfHNlYXJjaHwyfHxmaXRuZXNzJTIwcHJlbWl1bSUyMGJhY2tncm91bmQlMjBkYXJrfGVufDB8fHx8MTc4NjEyODI1Nnww&ixlib=rb-4.1.0&q=85",
+      "alt": "Dark premium fitness environment"
+    },
+    "placeholder_meal": {
+      "url": "https://images.unsplash.com/photo-1590741664176-7fbd7e2592a0",
+      "alt": "Chocolate cupcake with strawberry on a dark plate"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the Dark-First Utility (7) structure fused with Glass / Luxe (6) materials. Base is Obsidian/Graphite, not the banned navy/indigo. Accent is Antique Gold (#D4AF37), achieving the 'premium subscription' feel instead of typical fitness app colors.",
+    "BANNED: Do not use any blue, indigo, violet, purple, or neon gradients. No typical 'AI slop' purple.",
+    "Implement RTL support (Arabic) by utilizing appropriate localized layout techniques in React Native (e.g., I18nManager) and ensure typography handles Arabic gracefully (IBM Plex Sans supports Arabic variants).",
+    "The 'Scan Meal' action must be the visual hero. Use a large Floating Action Button (FAB) anchored to the center of the bottom tab bar with an Antique Gold background or heavily frosted glass.",
+    "Use Glassmorphism (expo-glass-effect or expo-blur) heavily on elevated surfaces like the tab bar, sticky headers, and bottom sheets, backed by a translucent tint for text readability.",
+    "All imagery (onboarding, paywall) must feature a vertical gradient scrim overlay to ensure foreground text is fully readable (WCAG AA).",
+    "For the camera layout, prioritize a clean viewfinder with an overlay frame, keeping controls minimal and thumb-accessible.",
+    "Provide empty, error, and loading states for all screens. Ensure generous whitespace and use the 8pt grid token system strictly."
+  ]
+}

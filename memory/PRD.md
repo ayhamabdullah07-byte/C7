@@ -30,7 +30,13 @@ C1 is a premium, AI-powered mobile nutrition, calorie tracking, and weight-manag
 - Payments (v1): stubbed toggle. Real Apple IAP + Google Play Billing to be wired when user builds native binaries through Emergent publish flow, using the user's own Apple Developer + Google Play Console accounts.
 
 ## Deferred (post-MVP)
-- Barcode scanner, meal recommendations, personalized meal plans, progress photos, weight/measurement charts, notifications, Google / Apple Sign-In, real IAP + PayPal/Stripe web checkout.
+- Barcode scanner, ~~meal recommendations~~ ✅ done, personalized meal plans (weekly), progress photos, weight/measurement charts, notifications, Google / Apple Sign-In, real IAP + PayPal/Stripe web checkout.
+
+## Feature: Complete My Day (Premium) – added
+- `POST /api/ai/recommend` — Gemini 3 Flash returns 3 meal + 3 snack ideas that fit the user's remaining daily budget. Focus filters: any / high_protein / low_calorie / vegetarian / vegan / quick.
+- `POST /api/ai/recommend/refine` — Takes a single item + natural-language request ("under 500 cal", "replace chicken with beef", "vegetarian", "faster to prepare"). Returns the same item with updated ingredients and recalculated macros. Same `id` preserved.
+- Screen `/app/frontend/app/recommend.tsx` — Premium-gated. Remaining-budget card, filter chip row, meal + snack sections, per-card "Talk to C1" bottom sheet with quick-ask chips and live macro updates, one-tap "Add to diary".
+- Dashboard entry: `home-complete-day` card routes premium → `/recommend`, free → `/paywall`.
 
 ## Testing accounts
 See `/app/memory/test_credentials.md`.

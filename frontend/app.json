@@ -1,24 +1,29 @@
 {
   "expo": {
-    "name": "frontend",
-    "slug": "frontend",
+    "name": "C1",
+    "slug": "c1-nutrition",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "frontend",
-    "userInterfaceStyle": "automatic",
+    "scheme": "c1app",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.cmealscanner.kx1egr"
+      "bundleIdentifier": "com.emergent.cmealscanner.kx1egr",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Scan your meals to track nutrition automatically.",
+        "NSPhotoLibraryUsageDescription": "Pick meal photos from your gallery to log calories."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#000000"
+        "backgroundColor": "#0A0A0C"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.emergent.cmealscanner.kx1egr"
+      "package": "com.emergent.cmealscanner.kx1egr",
+      "permissions": ["android.permission.CAMERA", "android.permission.READ_MEDIA_IMAGES"]
     },
     "web": {
       "bundler": "metro",
@@ -27,13 +32,26 @@
     },
     "plugins": [
       "expo-router",
+      "expo-localization",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan your meals to track nutrition automatically."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Pick meal photos from your gallery to log calories."
+        }
+      ],
       [
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-image.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#000000"
+          "backgroundColor": "#0A0A0C"
         }
       ]
     ],

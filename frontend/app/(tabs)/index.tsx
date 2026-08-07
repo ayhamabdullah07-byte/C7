@@ -119,6 +119,31 @@ export default function Home() {
           </View>
         </Pressable>
 
+        <Pressable
+          onPress={() => router.push(user?.premium ? '/recommend' : '/paywall')}
+          style={s.completeCard}
+          testID="home-complete-day"
+        >
+          <View style={s.completeIcon}>
+            <Text style={{ fontSize: 26 }}>🎯</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <View style={s.completeTitleRow}>
+              <Text style={s.completeTitle}>Complete My Day</Text>
+              {!user?.premium && (
+                <View style={s.premiumTag}>
+                  <Ionicons name="star" size={9} color={tokens.onBrand} />
+                  <Text style={s.premiumTagText}>PREMIUM</Text>
+                </View>
+              )}
+            </View>
+            <Text style={s.completeSub}>
+              AI meal & snack ideas to hit today's targets
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={tokens.textDim} />
+        </Pressable>
+
         <View style={s.row2}>
           <View style={[s.miniCard, { flex: 1 }]} testID="water-card">
             <View style={s.miniHeader}>
@@ -219,6 +244,39 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  completeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: tokens.md,
+    borderRadius: tokens.rLg,
+    backgroundColor: tokens.bg2,
+    borderWidth: 1,
+    borderColor: tokens.border,
+  },
+  completeIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: tokens.brandTint,
+    borderWidth: 1,
+    borderColor: tokens.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  completeTitleRow: { flexDirection: 'row', gap: 6, alignItems: 'center' },
+  completeTitle: { color: tokens.text, fontSize: 15, fontWeight: '800' },
+  completeSub: { color: tokens.textMute, fontSize: 12, marginTop: 2 },
+  premiumTag: {
+    flexDirection: 'row',
+    gap: 2,
+    alignItems: 'center',
+    backgroundColor: tokens.brand,
+    paddingHorizontal: 6,
+    height: 16,
+    borderRadius: 4,
+  },
+  premiumTagText: { color: tokens.onBrand, fontSize: 8, fontWeight: '900', letterSpacing: 0.5 },
   row2: { flexDirection: 'row', gap: tokens.md },
   miniCard: {
     backgroundColor: tokens.bg2,

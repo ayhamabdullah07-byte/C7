@@ -757,6 +757,275 @@ async def chat_sync(inp: ChatIn, user=Depends(get_current_user)):
 
 
 # ---------------------------------------------------------------------------
+# AI Meal & Snack Recommendations (Complete My Day)
+# ---------------------------------------------------------------------------
+class RecommendIngredient(BaseModel):
+    name: str
+    portion_g: float
+
+
+class RecommendItem(BaseModel):
+    id: str
+    kind: Literal["meal", "snack"]
+    emoji: str = "🍽️"
+    name: str
+    description: str = ""
+    prep_minutes: int = 15
+    tags: list[str] = []
+    ingredients: list[RecommendIngredient] = []
+    calories: float
+    protein_g: float
+    carbs_g: float
+    fat_g: float
+
+
+class RecommendOut(BaseModel):
+    remaining: dict
+    items: list[RecommendItem]
+
+
+class RecommendIn(BaseModel):
+    focus: Optional[Literal["high_protein", "low_calorie", "vegetarian", "vegan", "quick", "any"]] = "any"
+    only: Optional[Literal["all", "meals", "snacks"]] = "all"
+    log_date: Optional[str] = None
+
+
+class RefineIn(BaseModel):
+    session_id: str
+    item: RecommendItem
+    request: str
+
+
+REC_SYSTEM = (
+    "You are C1 Premium, an expert AI nutrition planner. "
+    "Given a user's remaining daily calorie/protein/carbs/fat budget and preferences, propose realistic meal and snack ideas. "
+    "Reply ONLY with valid minified JSON matching exactly: "
+    '{"items":[{"id":str,"kind":"meal"|"snack","emoji":str,"name":str,"description":str,'
+    '"prep_minutes":int,"tags":[str],"ingredients":[{"name":str,"portion_g":number}],'
+    '"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number}]}. '
+    "Macros must be the SUM across the ingredients and be realistic. "
+    "Keep ideas concrete and diverse (different proteins, cuisines). "
+    "Snacks should be under 300 kcal; meals typically 300-800 kcal. "
+    "Never exceed the remaining budget by more than 15%. "
+    "Do NOT wrap the JSON in markdown, comments, or prose."
+)
+
+REFINE_SYSTEM = (
+    "You are C1 Premium, refining a single recommended meal or snack based on a user's request "
+    "(e.g. replace an ingredient, adjust calories, dietary restriction, less prep time). "
+    "Reply ONLY with valid minified JSON for a single item using exactly this schema: "
+    '{"id":str,"kind":"meal"|"snack","emoji":str,"name":str,"description":str,'
+    '"prep_minutes":int,"tags":[str],"ingredients":[{"name":str,"portion_g":number}],'
+    '"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number}. '
+    "Keep the item's id unchanged. Recompute macros from the updated ingredients. "
+    "Respect any dietary restrictions the user mentions. Stay close to the user's remaining budget if provided. "
+    "Do NOT wrap the JSON in markdown."
+)
+
+
+def _parse_json_object(text: str) -> dict:
+    text = text.strip()
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE | re.MULTILINE).strip()
+    try:
+        return json.loads(text)
+    except Exception:
+        m = re.search(r"\{.*\}", text, re.DOTALL)
+        if not m:
+            return {}
+        try:
+            return json.loads(m.group(0))
+        except Exception:
+            return {}
+
+
+def _coerce_rec_item(raw: dict, default_kind: str = "meal") -> Optional[RecommendItem]:
+    try:
+        ings = []
+        for ing in raw.get("ingredients", []) or []:
+            ings.append(
+                RecommendIngredient(
+                    name=str(ing.get("name", "")).strip() or "Ingredient",
+                    portion_g=float(ing.get("portion_g") or 0),
+                )
+            )
+        return RecommendItem(
+            id=str(raw.get("id") or uuid.uuid4().hex[:8]),
+            kind=raw.get("kind") if raw.get("kind") in ("meal", "snack") else default_kind,  # type: ignore
+            emoji=str(raw.get("emoji") or "🍽️")[:4],
+            name=str(raw.get("name") or "Meal idea")[:80],
+            description=str(raw.get("description") or "")[:280],
+            prep_minutes=int(raw.get("prep_minutes") or 15),
+            tags=[str(t)[:20] for t in (raw.get("tags") or [])][:6],
+            ingredients=ings,
+            calories=float(raw.get("calories") or 0),
+            protein_g=float(raw.get("protein_g") or 0),
+            carbs_g=float(raw.get("carbs_g") or 0),
+            fat_g=float(raw.get("fat_g") or 0),
+        )
+    except Exception:
+        return None
+
+
+async def _remaining_budgets(user: dict, log_date: str) -> dict:
+    targets = _calc_targets(user)
+    if not targets:
+        return {"calories": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0}
+    meals = await db.meals.find(
+        {"user_id": user["id"], "log_date": log_date}, {"_id": 0}
+    ).to_list(500)
+    consumed_cal = sum(m.get("total_calories", 0) for m in meals)
+    consumed_p = sum(m.get("total_protein_g", 0) for m in meals)
+    consumed_c = sum(m.get("total_carbs_g", 0) for m in meals)
+    consumed_f = sum(m.get("total_fat_g", 0) for m in meals)
+    return {
+        "calories": max(0, round(targets.calories - consumed_cal)),
+        "protein_g": max(0, round(targets.protein_g - consumed_p)),
+        "carbs_g": max(0, round(targets.carbs_g - consumed_c)),
+        "fat_g": max(0, round(targets.fat_g - consumed_f)),
+    }
+
+
+@api.post("/ai/recommend", response_model=RecommendOut)
+async def recommend(inp: RecommendIn, user=Depends(get_current_user)):
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(500, "AI key not configured")
+    log_date = inp.log_date or _today()
+    remaining = await _remaining_budgets(user, log_date)
+
+    only = inp.only or "all"
+    if only == "meals":
+        want = "3 meal options"
+    elif only == "snacks":
+        want = "4 snack options"
+    else:
+        want = "3 meal options AND 3 snack options"
+    focus_hint = {
+        "high_protein": "Prioritize high-protein options (>=25g protein per meal).",
+        "low_calorie": "Prioritize low-calorie options.",
+        "vegetarian": "All items must be vegetarian.",
+        "vegan": "All items must be vegan (no animal products).",
+        "quick": "Prioritize items that take <=10 minutes to prepare.",
+        "any": "",
+    }.get(inp.focus or "any", "")
+
+    user_prompt = (
+        f"Remaining daily budget for the user today: {remaining['calories']} kcal, "
+        f"protein {remaining['protein_g']}g, carbs {remaining['carbs_g']}g, fat {remaining['fat_g']}g. "
+        f"User profile: {_profile_context(user)}. "
+        f"Produce {want} that together help the user complete their day close to targets. "
+        f"{focus_hint} "
+        "Return the JSON only."
+    )
+
+    session_id = f"rec-{user['id']}-{uuid.uuid4().hex[:6]}"
+
+    async def _run() -> str:
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=session_id,
+            system_message=REC_SYSTEM,
+        ).with_model(*AI_TEXT_MODEL)
+        buf = ""
+        async for ev in chat.stream_message(UserMessage(text=user_prompt)):
+            if isinstance(ev, TextDelta):
+                buf += ev.content
+            elif isinstance(ev, StreamDone):
+                break
+        return buf
+
+    last_exc: Exception | None = None
+    text = ""
+    for attempt in range(2):
+        try:
+            text = await asyncio.wait_for(_run(), timeout=60)
+            break
+        except Exception as e:
+            last_exc = e
+            logger.warning("recommend attempt %d failed: %s", attempt + 1, e)
+            if attempt == 0:
+                await asyncio.sleep(1.0)
+    else:
+        raise HTTPException(502, f"AI failed: {last_exc}")
+
+    obj = _parse_json_object(text)
+    items: list[RecommendItem] = []
+    for raw in obj.get("items", []) or []:
+        it = _coerce_rec_item(
+            raw,
+            default_kind="snack" if only == "snacks" else "meal",
+        )
+        if it:
+            items.append(it)
+
+    if only == "meals":
+        items = [i for i in items if i.kind == "meal"]
+    elif only == "snacks":
+        items = [i for i in items if i.kind == "snack"]
+
+    return RecommendOut(remaining=remaining, items=items)
+
+
+@api.post("/ai/recommend/refine", response_model=RecommendItem)
+async def recommend_refine(inp: RefineIn, user=Depends(get_current_user)):
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(500, "AI key not configured")
+    remaining = await _remaining_budgets(user, _today())
+    user_prompt = (
+        f"Current recommendation JSON: {inp.item.model_dump_json()}. "
+        f"User's request: \"{inp.request}\". "
+        f"User remaining daily budget: {remaining['calories']} kcal, "
+        f"P {remaining['protein_g']}g / C {remaining['carbs_g']}g / F {remaining['fat_g']}g. "
+        f"User profile: {_profile_context(user)}. "
+        "Return the updated single-item JSON only. Keep the same id."
+    )
+
+    async def _run() -> str:
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=inp.session_id,
+            system_message=REFINE_SYSTEM,
+        ).with_model(*AI_TEXT_MODEL)
+        buf = ""
+        async for ev in chat.stream_message(UserMessage(text=user_prompt)):
+            if isinstance(ev, TextDelta):
+                buf += ev.content
+            elif isinstance(ev, StreamDone):
+                break
+        return buf
+
+    last_exc: Exception | None = None
+    text = ""
+    for attempt in range(2):
+        try:
+            text = await asyncio.wait_for(_run(), timeout=60)
+            break
+        except Exception as e:
+            last_exc = e
+            logger.warning("refine attempt %d failed: %s", attempt + 1, e)
+            if attempt == 0:
+                await asyncio.sleep(1.0)
+    else:
+        raise HTTPException(502, f"AI failed: {last_exc}")
+
+    obj = _parse_json_object(text)
+    # Some models may still wrap under 'items' or 'item'; unwrap defensively
+    if "items" in obj and isinstance(obj["items"], list) and obj["items"]:
+        obj = obj["items"][0]
+    if "item" in obj and isinstance(obj["item"], dict):
+        obj = obj["item"]
+    obj.setdefault("id", inp.item.id)
+    updated = _coerce_rec_item(obj, default_kind=inp.item.kind)
+    if not updated:
+        raise HTTPException(502, "AI returned an invalid recommendation")
+    # preserve id
+    updated.id = inp.item.id
+    return updated
+
+
+
+
+
+# ---------------------------------------------------------------------------
 # Wire up
 # ---------------------------------------------------------------------------
 app.include_router(api)

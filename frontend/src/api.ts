@@ -107,6 +107,20 @@ export const api = {
       timeoutMs: 90000,
       retries: 2,
     }),
+  recommend: (focus: string, only: 'all' | 'meals' | 'snacks') =>
+    req('/ai/recommend', {
+      method: 'POST',
+      body: JSON.stringify({ focus, only }),
+      timeoutMs: 90000,
+      retries: 1,
+    }),
+  refineRecommendation: (session_id: string, item: any, request: string) =>
+    req('/ai/recommend/refine', {
+      method: 'POST',
+      body: JSON.stringify({ session_id, item, request }),
+      timeoutMs: 90000,
+      retries: 1,
+    }),
   chat: (message: string, session_id?: string) =>
     req('/ai/chat-sync', { method: 'POST', body: JSON.stringify({ message, session_id }) }),
   chatHistory: (session_id: string) => req(`/ai/chat/history?session_id=${session_id}`),

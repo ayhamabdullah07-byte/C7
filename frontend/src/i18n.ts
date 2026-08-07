@@ -94,6 +94,29 @@ const en = {
   medicalDisclaimer:
     'C1 provides general nutrition information and is not a replacement for professional medical or nutrition advice.',
   errors: 'Something went wrong',
+  // recommendations
+  completeMyDay: 'Complete My Day',
+  completeMyDaySub: 'AI meal & snack suggestions to hit your goals',
+  premiumOnly: 'Premium only',
+  remainingToday: 'Remaining today',
+  meals: 'Meals',
+  snacks: 'Snacks',
+  filterAll: 'All',
+  filterHighProtein: 'High-protein',
+  filterLowCal: 'Low-calorie',
+  filterVeg: 'Vegetarian',
+  filterVegan: 'Vegan',
+  filterQuick: 'Quick',
+  talkToC1: 'Talk to C1',
+  ingredients: 'Ingredients',
+  refreshIdeas: 'New ideas',
+  askModification: 'Ask C1 to modify…',
+  quickAsk1: 'Higher in protein',
+  quickAsk2: 'Under 500 calories',
+  quickAsk3: 'Make it vegetarian',
+  quickAsk4: 'Faster to prepare',
+  updated: 'Updated',
+  goalHit: 'On track for today',
 };
 
 type Dict = typeof en;

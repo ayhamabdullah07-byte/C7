@@ -77,7 +77,7 @@ export default function Scan() {
   const pickFromGallery = async () => {
     if (analyzing) return;
     const r = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       base64: false,
       quality: 1,
     });

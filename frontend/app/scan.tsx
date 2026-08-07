@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
@@ -42,58 +43,93 @@ export default function Scan() {
   const [photoB64, setPhotoB64] = useState<string | null>(null);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeStep, setAnalyzeStep] = useState<'optimizing' | 'uploading' | 'analyzing' | ''>('');
   const [items, setItems] = useState<Item[] | null>(null);
   const [mealType, setMealType] = useState<MealType>('lunch');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const runIdRef = useRef(0);
+
+  // Resize/compress to keep the AI request small & fast. Cap the long edge at 1024px
+  // and re-encode to JPEG at 0.55 quality. Base64 typically drops to ~80-150KB.
+  const optimize = async (uri: string): Promise<{ base64: string; uri: string }> => {
+    const result = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: 1024 } }],
+      { compress: 0.55, format: ImageManipulator.SaveFormat.JPEG, base64: true },
+    );
+    return { base64: result.base64 || '', uri: result.uri };
+  };
 
   const capture = async () => {
-    if (!camRef.current) return;
+    if (!camRef.current || analyzing) return;
     try {
-      const photo = await camRef.current.takePictureAsync({ base64: true, quality: 0.6 });
-      if (photo?.base64) {
-        setPhotoB64(photo.base64);
-        setPhotoUri(photo.uri);
-        analyze(photo.base64);
-      }
+      // Take a small preview-quality shot; we'll re-encode via manipulator anyway.
+      const photo = await camRef.current.takePictureAsync({ quality: 0.5, base64: false, skipProcessing: true });
+      if (!photo?.uri) return;
+      setPhotoUri(photo.uri);
+      await analyze(photo.uri);
     } catch (e: any) {
       setErr(e.message);
     }
   };
 
   const pickFromGallery = async () => {
+    if (analyzing) return;
     const r = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      base64: true,
-      quality: 0.6,
+      base64: false,
+      quality: 1,
     });
-    if (!r.canceled && r.assets[0]?.base64) {
-      setPhotoB64(r.assets[0].base64);
+    if (!r.canceled && r.assets[0]?.uri) {
       setPhotoUri(r.assets[0].uri);
-      analyze(r.assets[0].base64);
+      await analyze(r.assets[0].uri);
     }
   };
 
-  const analyze = async (b64: string) => {
+  const analyze = async (uri: string) => {
+    const runId = ++runIdRef.current;
     setAnalyzing(true);
     setErr(null);
     setItems(null);
+    setAnalyzeStep('optimizing');
     try {
-      const res = await api.scanMeal(b64);
+      const opt = await optimize(uri);
+      if (runId !== runIdRef.current) return;
+      setPhotoB64(opt.base64);
+      setPhotoUri(opt.uri);
+      setAnalyzeStep('uploading');
+      // brief tick so users see the progression update
+      await new Promise((r) => setTimeout(r, 60));
+      setAnalyzeStep('analyzing');
+      const res = await api.scanMeal(opt.base64);
+      if (runId !== runIdRef.current) return;
       setItems(res.items || []);
     } catch (e: any) {
+      if (runId !== runIdRef.current) return;
       setErr(e.message || 'AI failed');
       setItems([]);
     } finally {
-      setAnalyzing(false);
+      if (runId === runIdRef.current) {
+        setAnalyzing(false);
+        setAnalyzeStep('');
+      }
     }
   };
 
   const retake = () => {
+    runIdRef.current++;
     setPhotoB64(null);
     setPhotoUri(null);
     setItems(null);
     setErr(null);
+    setAnalyzing(false);
+    setAnalyzeStep('');
+  };
+
+  const retry = () => {
+    if (!photoUri || analyzing) return;
+    analyze(photoUri);
   };
 
   const updateItem = (idx: number, field: keyof Item, value: number) => {
@@ -126,8 +162,16 @@ export default function Scan() {
   const totalC = items?.reduce((a, i) => a + (i.carbs_g || 0), 0) || 0;
   const totalF = items?.reduce((a, i) => a + (i.fat_g || 0), 0) || 0;
 
-  // Result view
-  if (photoUri && items !== null) {
+  // Result / progress view (shown as soon as a photo is chosen)
+  if (photoUri && (analyzing || items !== null)) {
+    const stepText =
+      analyzeStep === 'optimizing'
+        ? 'Optimizing photo…'
+        : analyzeStep === 'uploading'
+        ? 'Uploading to AI…'
+        : analyzeStep === 'analyzing'
+        ? 'AI is identifying your meal…'
+        : t('analyzing');
     return (
       <SafeAreaView style={s.wrap} edges={['top', 'bottom']}>
         <View style={s.headerRow}>
@@ -143,20 +187,51 @@ export default function Scan() {
           <Image source={{ uri: photoUri }} style={s.previewImg} />
 
           {analyzing && (
-            <View style={s.analyzing}>
-              <ActivityIndicator color={tokens.brand} />
-              <Text style={s.analyzingText}>{t('analyzing')}</Text>
+            <View style={s.analyzing} testID="scan-analyzing">
+              <ActivityIndicator color={tokens.brand} size="large" />
+              <Text style={s.analyzingText}>{stepText}</Text>
+              <View style={s.stepDots}>
+                <View
+                  style={[
+                    s.stepDot,
+                    (analyzeStep === 'optimizing' ||
+                      analyzeStep === 'uploading' ||
+                      analyzeStep === 'analyzing') && s.stepDotActive,
+                  ]}
+                />
+                <View
+                  style={[
+                    s.stepDot,
+                    (analyzeStep === 'uploading' || analyzeStep === 'analyzing') && s.stepDotActive,
+                  ]}
+                />
+                <View
+                  style={[s.stepDot, analyzeStep === 'analyzing' && s.stepDotActive]}
+                />
+              </View>
+              <Text style={s.analyzingHint}>This usually takes 5–15 seconds.</Text>
             </View>
           )}
 
-          {!analyzing && items.length === 0 && (
+          {!analyzing && err && (items === null || items.length === 0) && (
+            <View style={s.errorCard} testID="scan-error">
+              <Ionicons name="alert-circle" size={24} color={tokens.danger} />
+              <Text style={s.errorText}>{err}</Text>
+              <Pressable style={s.retryBtn} onPress={retry} testID="scan-retry">
+                <Ionicons name="refresh" size={16} color={tokens.onBrand} />
+                <Text style={s.retryText}>Try again</Text>
+              </Pressable>
+            </View>
+          )}
+
+          {!analyzing && !err && items !== null && items.length === 0 && (
             <View style={s.emptyState}>
               <Ionicons name="alert-circle-outline" size={28} color={tokens.textMute} />
               <Text style={s.emptyStateText}>{t('noItems')}</Text>
             </View>
           )}
 
-          {items.length > 0 && (
+          {items !== null && items.length > 0 && (
             <>
               <View style={s.totalsCard}>
                 <Text style={s.totalsCal}>{Math.round(totalCal)} <Text style={s.totalsUnit}>kcal</Text></Text>
@@ -225,7 +300,7 @@ export default function Scan() {
           {err && <Text style={{ color: tokens.danger }}>{err}</Text>}
         </ScrollView>
 
-        {items.length > 0 && (
+        {items !== null && items.length > 0 && (
           <View style={s.footer}>
             <Pressable
               testID="scan-save"
@@ -387,6 +462,22 @@ const s = StyleSheet.create({
   previewImg: { width: '100%', height: 200, borderRadius: tokens.rLg, backgroundColor: tokens.bg2 },
   analyzing: {
     backgroundColor: tokens.bg2,
+    padding: tokens.xl,
+    borderRadius: tokens.rLg,
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: tokens.border,
+  },
+  analyzingText: { color: tokens.text, fontSize: 15, fontWeight: '700', textAlign: 'center' },
+  analyzingHint: { color: tokens.textMute, fontSize: 12 },
+  stepDots: { flexDirection: 'row', gap: 6, marginTop: 2 },
+  stepDot: {
+    width: 24, height: 4, borderRadius: 2, backgroundColor: tokens.bg3,
+  },
+  stepDotActive: { backgroundColor: tokens.brand },
+  errorCard: {
+    backgroundColor: tokens.bg2,
     padding: tokens.lg,
     borderRadius: tokens.rLg,
     alignItems: 'center',
@@ -394,7 +485,18 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: tokens.border,
   },
-  analyzingText: { color: tokens.textDim, fontSize: 13 },
+  errorText: { color: tokens.textDim, fontSize: 13, textAlign: 'center' },
+  retryBtn: {
+    flexDirection: 'row',
+    gap: 6,
+    alignItems: 'center',
+    backgroundColor: tokens.brand,
+    paddingHorizontal: 16,
+    height: 40,
+    borderRadius: 999,
+    marginTop: 4,
+  },
+  retryText: { color: tokens.onBrand, fontWeight: '800', fontSize: 13 },
   emptyState: { alignItems: 'center', padding: tokens.lg, gap: 8 },
   emptyStateText: { color: tokens.textMute, fontSize: 14, textAlign: 'center' },
   totalsCard: {

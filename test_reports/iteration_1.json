@@ -1,0 +1,45 @@
+{
+  "summary": "Verified the C1 scan-meal performance bug fix and ran full backend regression + core frontend flows. Backend: 11/11 tests passed. Scan happy-path returned 200 in ~11.7s with valid items[] (well under the 60s target); invalid base64 rejected in ~0.0s with HTTP 400 (no 75s hang). All CRUD (auth, meals, water, weight, dashboard, premium-toggle, chat-sync, chat history, delete-account) work. Mifflin-St Jeor targets computed correctly (BMR=1780, TDEE≈2759, calories≈2259). Frontend: welcome→register→5-step onboarding→dashboard→coach→profile flow works. Coach 'coach-suggest-0' triggers AI reply in ~3s. Profile language switch to Arabic renders RTL Arabic text; Premium toggle flips 'premium-badge'. Scan permission screen renders 'grant-cam-btn' and 'alt-gallery-btn' correctly (real capture skipped in headless per spec). All scan.tsx testIDs required (scan-analyzing, scan-error, scan-retry) exist in code. Minor: deprecated ImagePicker.MediaTypeOptions.Images detected.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/register", "issue": "Returned 'email' preserves original casing while POST /api/auth/login returns lowercased email (stored value). Minor inconsistency – not functional; tests updated to compare case-insensitively."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "profile (Arabic)", "issues": ["I18nManager.forceRTL switches text layout to RTL visually but document.documentElement.dir is not set on Expo web; some non-RN CSS may not flip. Consider setting document.dir='rtl' on web platform for full RTL propagation."]}
+    ],
+    "react_native_issues": [
+      {"component": "expo-image-picker", "issue": "Using deprecated ImagePicker.MediaTypeOptions.Images. In expo-image-picker SDK 51+ this API is deprecated in favor of a mediaTypes array like ['images']. Reference: /app/frontend/app/scan.tsx:80"}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_c1_api.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Normalize email casing in /api/auth/register response to match /api/auth/login (return u['email'] i.e. lowercased) for consistency.",
+    "Replace deprecated ImagePicker.MediaTypeOptions.Images with the new mediaTypes syntax (e.g., mediaTypes: ['images']) in /app/frontend/app/scan.tsx:80 to avoid future breakage.",
+    "(Optional) On web, set document.documentElement.dir='rtl' when switching to Arabic so any web-only CSS flips as well."
+  ],
+  "critical_code_review_comments": [
+    "server.py:591-605 – scan_meal retry loop looks correct (break on success, else raises 502). No 502 observed in tests.",
+    "server.py:566 – base64.b64decode(raw_b64[:200], validate=False) is a very loose sanity check; still, invalid input like 'not_an_image' fails fast at the LLM layer within ~1s and returns 400 (confirmed).",
+    "scan.tsx – analyze() uses AbortController(90s) + 2 retries on 502/503/504 with backoff (per PRD). Loading UI has 3 step-dots (Optimizing/Uploading/Analyzing) as required.",
+    "server.py is 774 lines – borderline but still <1000; consider splitting AI routes into a submodule if it grows further."
+  ],
+  "updated_files": [
+    "/app/backend/tests/conftest.py (new)",
+    "/app/backend/tests/test_c1_api.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Each test run registers a fresh TEST_<timestamp>@c1.app user; test_zzz_delete_account cleans up. Frontend E2E uses e2e_<timestamp>@c1.app (not cleaned up but harmless).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend pytest suite at /app/backend/tests/test_c1_api.py covers full API surface + scan bug-fix. Run: pytest /app/backend/tests/ -v -o addopts=''  (existing pytest.ini uses xdist; disable if running single-file). EXPO_PUBLIC_BACKEND_URL is the base URL. Real food image used from Unsplash for scan test.",
+  "rca_of_issue": "Original bug: meal scan slow and sometimes 502. Fix verified: client-side resize (1024px/JPEG 0.55) reduces payload; backend wraps Gemini call in asyncio.wait_for(75s) with 1 retry; frontend uses AbortController(90s)+2 retries with exp backoff. Observed happy-path: 11.7s end-to-end at backend. No 502 observed across ~15 endpoint calls."
+}

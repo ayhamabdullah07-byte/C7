@@ -1,0 +1,31 @@
+{
+  "summary": "BUG FIX VERIFICATION PASSED. Removed hardcoded fallbacks for DB_NAME/JWT_SECRET in backend/server.py and quoted METRO_CACHE_ROOT in frontend/.env — both changes are safe and no regressions observed. Backend boots cleanly: GET /api/ returns {\"app\":\"C1\",\"status\":\"ok\"} (200 OK), confirming os.environ['DB_NAME'] and os.environ['JWT_SECRET'] are read from .env without KeyError. Full JWT round-trip works: register → login → /me all use the same secret with no 401 mismatches. Regression sweep: re-ran full pytest suite at /app/backend/tests/test_c1_api.py — 11/11 passed in 15.38s (health, register+login+me, profile update with Mifflin-St Jeor targets [BMR=1780, TDEE≈2759, cal≈2259, protein=144g], meals CRUD, water POST+GET aggregate, weight POST+profile sync, dashboard summary, /api/ai/scan-meal happy path with real food JPEG, /api/ai/scan-meal invalid base64 fast-fail, /api/ai/chat-sync + history persistence, premium-toggle flip, DELETE /api/auth/account). Frontend: Metro bundled 1395 modules in ~772ms with no errors after quoting METRO_CACHE_ROOT — env var is exported cleanly by Expo. Welcome screen renders correctly with both testIDs 'welcome-signup-btn' and 'welcome-signin-btn' visible on mobile viewport (375x667). No red screens, no bundling errors, no console errors (only pre-existing 'shadow* deprecated' warning from RN, unchanged from iteration_1).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_c1_api.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py:41-44 now uses os.environ['MONGO_URL'], os.environ['DB_NAME'], os.environ['JWT_SECRET'] (strict, no fallback) — fails fast at import if missing, per production hardening. Verified live: backend boots and root endpoint returns 200.",
+    "frontend/.env:5 METRO_CACHE_ROOT is now quoted (\"/app/frontend/.metro-cache\"). Expo start log shows 'env: export ... METRO_CACHE_ROOT ...' — value is exported without parse errors.",
+    "No new deprecations introduced. Existing note from iteration_1 about expo-image-picker's MediaTypeOptions.Images is still valid but out of scope for this bug fix."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Registered fresh TEST_<timestamp>@c1.app user per pytest session; test_zzz_delete_account cleans it up.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Both blockers cleared. Backend regression suite at /app/backend/tests/test_c1_api.py remains the source of truth (uses pytest.ini with -n 2 --dist loadscope). Base URL from EXPO_PUBLIC_BACKEND_URL (https://c1-meal-scanner.preview.emergentagent.com). No user-supplied credentials required — suite auto-registers a fresh user each run.",
+  "rca_of_issue": "Deployment agent flagged: (a) hardcoded fallback strings for DB_NAME='c1_database' and JWT_SECRET='dev-secret' in server.py violated no-secret-fallbacks rule (risk: silent boot with dev secret in prod); (b) unquoted path in frontend/.env's METRO_CACHE_ROOT could break shell env parsing on some Expo/dotenv versions. Fix applied by main agent: (1) switched to os.environ[...] KeyError-on-miss access — verified backend boots cleanly and JWT signing/verification is consistent across register→login→me (any secret mismatch would surface as 401 on /me; observed 200). (2) Wrapped METRO_CACHE_ROOT value in double quotes — verified Metro bundler exports the var and bundles all 1395 modules with zero errors. No functional regressions."
+}

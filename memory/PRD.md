@@ -44,8 +44,15 @@ C1 is a premium, AI-powered mobile nutrition, calorie tracking, and weight-manag
 - Login screen now shows "Forgot Password?" link (`testID='login-forgot-password'`) directly below the password input.
 - New screen `/(auth)/forgot-password.tsx` with two stages: request-code and verify (code + new password) + resend option.
 
-## UI polish
-- Scan FAB in tab layout moved slightly up (bottom offset 92 → 112) for better thumb reach; horizontal position, size, and functionality unchanged.
+## Plans, Scan Quotas & Notifications (this iteration)
+- **Plan field** on user (`free` / `premium` / `plus`). Legacy `premium` bool derived (`true` iff plan is premium or plus).
+- **Scan-limit enforcement** – server-side via `scan_logs` collection with 24h rolling window per user. Free = 4, Premium = 20, Plus = unlimited (fair-use cap 60). Failed/invalid scans do NOT count. `GET /api/scan-quota` returns `{plan, limit, used, remaining, fair_use_limit, blocked, reset_at}`. Scan endpoint returns HTTP 429 with structured detail when blocked.
+- **Plus-only gate** on `/api/ai/recommend` and `/api/ai/recommend/refine` (HTTP 402 `plus_required` for free/premium).
+- **Plan setter** `POST /api/auth/plan {plan}` (stub; real Apple IAP + Google Play Billing at native build). Legacy `/auth/premium-toggle` now cycles free → premium → plus → free.
+- **Paywall** rebuilt with 3 tier cards: Free €0, Premium €1.99/mo, Plus €4.99/mo (highlighted).
+- **Profile** shows current plan badge, live 24h scan-quota card, and a **Daily Reminders** switch that appears only for Plus users. Enabling schedules 2 local daily reminders (11:00 lunch nudge, 19:00 evening remaining-calories) via `expo-notifications`. Requests OS permission on enable; safe no-op on web preview.
+- **Multilingual login tagline** – new i18n key `loginTagline` in EN/AR/DE/ES/FR ("C1 is with you every step to your goal" / "C1 معك لتصل إلى هدفك" / German / Spanish / French translations).
+- **Scan FAB** moved to bottom-left, slightly higher (left:20, bottom:124).
 
 ## Testing accounts
 See `/app/memory/test_credentials.md`.

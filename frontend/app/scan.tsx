@@ -107,7 +107,15 @@ export default function Scan() {
       setItems(res.items || []);
     } catch (e: any) {
       if (runId !== runIdRef.current) return;
-      setErr(e.message || 'AI failed');
+      // Scan-limit hit
+      if (e?.status === 429 || e?.detail?.error === 'scan_limit_reached') {
+        setErr(
+          e?.detail?.message ||
+            "You've reached your daily scan limit. Upgrade for more scans.",
+        );
+      } else {
+        setErr(e.message || 'AI failed');
+      }
       setItems([]);
     } finally {
       if (runId === runIdRef.current) {

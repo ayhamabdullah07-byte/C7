@@ -48,6 +48,7 @@ export default function Login() {
         <View style={s.body}>
           <Text style={s.title}>{t('signIn')}</Text>
           <Text style={s.sub}>{t('tagline')}</Text>
+          <Text style={s.loginTagline} testID="login-tagline">{t('loginTagline')}</Text>
           <TextInput
             testID="login-email"
             placeholder={t('email')}
@@ -104,6 +105,14 @@ const s = StyleSheet.create({
   body: { flex: 1, padding: tokens.xl, gap: tokens.md },
   title: { color: tokens.text, fontSize: 30, fontWeight: '900', letterSpacing: -0.5 },
   sub: { color: tokens.textMute, fontSize: 14, marginBottom: tokens.md },
+  loginTagline: {
+    color: tokens.brand,
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: -8,
+    marginBottom: tokens.md,
+    letterSpacing: 0.3,
+  },
   input: {
     backgroundColor: tokens.bg2,
     color: tokens.text,

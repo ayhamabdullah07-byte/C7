@@ -54,8 +54,17 @@ async function req(path: string, opts: ReqOpts = {}) {
           await new Promise((r) => setTimeout(r, 800 * Math.pow(2, attempt)));
           continue;
         }
-        const msg = (data && data.detail) || `HTTP ${res.status}`;
-        throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+        const detail = data && data.detail;
+        const msg =
+          typeof detail === 'string'
+            ? detail
+            : detail && detail.message
+            ? detail.message
+            : `HTTP ${res.status}`;
+        const e = new Error(msg) as Error & { status?: number; detail?: any };
+        e.status = res.status;
+        e.detail = detail;
+        throw e;
       }
       return data;
     } catch (e: any) {
@@ -98,6 +107,9 @@ export const api = {
   updateProfile: (p: any) =>
     req('/auth/profile', { method: 'PATCH', body: JSON.stringify(p) }),
   togglePremium: () => req('/auth/premium-toggle', { method: 'POST' }),
+  setPlan: (plan: 'free' | 'premium' | 'plus') =>
+    req('/auth/plan', { method: 'POST', body: JSON.stringify({ plan }) }),
+  scanQuota: () => req('/scan-quota'),
   deleteAccount: () => req('/auth/account', { method: 'DELETE' }),
 
   dashboard: (log_date?: string) =>

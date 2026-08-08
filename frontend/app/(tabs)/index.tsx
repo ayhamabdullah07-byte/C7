@@ -120,7 +120,7 @@ export default function Home() {
         </Pressable>
 
         <Pressable
-          onPress={() => router.push(user?.premium ? '/recommend' : '/paywall')}
+          onPress={() => router.push(user?.plan === 'plus' ? '/recommend' : '/paywall')}
           style={s.completeCard}
           testID="home-complete-day"
         >
@@ -130,10 +130,10 @@ export default function Home() {
           <View style={{ flex: 1 }}>
             <View style={s.completeTitleRow}>
               <Text style={s.completeTitle}>Complete My Day</Text>
-              {!user?.premium && (
+              {user?.plan !== 'plus' && (
                 <View style={s.premiumTag}>
                   <Ionicons name="star" size={9} color={tokens.onBrand} />
-                  <Text style={s.premiumTagText}>PREMIUM</Text>
+                  <Text style={s.premiumTagText}>PLUS</Text>
                 </View>
               )}
             </View>

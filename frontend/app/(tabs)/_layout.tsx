@@ -82,8 +82,8 @@ export default function TabsLayout() {
 const s = StyleSheet.create({
   fabWrap: {
     position: 'absolute',
-    right: 20,
-    bottom: 112,
+    left: 20,
+    bottom: 124,
   },
   fab: {
     width: 64,

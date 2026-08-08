@@ -18,9 +18,10 @@ def premium_user(api_client, base_url):
                               "weight_kg": 80, "target_weight_kg": 75,
                               "activity": "moderate", "goal": "lose"})
     assert r.status_code == 200, r.text
-    # flip premium
-    r = api_client.post(f"{base_url}/api/auth/premium-toggle", headers=auth)
+    # set plan to 'plus' — /recommend now requires plus, not just premium
+    r = api_client.post(f"{base_url}/api/auth/plan", headers=auth, json={"plan": "plus"})
     assert r.status_code == 200
+    assert r.json()["plan"] == "plus"
     assert r.json()["premium"] is True
     yield {"auth": auth, "email": email}
     # cleanup

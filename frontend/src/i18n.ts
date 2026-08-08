@@ -5,6 +5,7 @@ import { I18nManager } from 'react-native';
 const en = {
   appName: 'C1',
   tagline: 'Your AI nutrition coach',
+  loginTagline: 'C1 is with you every step to your goal',
   // auth
   welcome: 'Welcome to C1',
   signIn: 'Sign In',
@@ -135,6 +136,7 @@ type Dict = typeof en;
 const ar: Dict = {
   ...en,
   tagline: 'مدربك الذكي للتغذية',
+  loginTagline: 'C1 معك لتصل إلى هدفك',
   welcome: 'أهلاً بك في C1',
   signIn: 'تسجيل الدخول',
   signUp: 'إنشاء حساب',
@@ -220,6 +222,7 @@ const ar: Dict = {
 const de: Dict = {
   ...en,
   tagline: 'Dein KI-Ernährungscoach',
+  loginTagline: 'C1 begleitet dich zu deinem Ziel',
   welcome: 'Willkommen bei C1',
   signIn: 'Anmelden',
   signUp: 'Konto erstellen',
@@ -294,6 +297,7 @@ const de: Dict = {
 const es: Dict = {
   ...en,
   tagline: 'Tu coach nutricional con IA',
+  loginTagline: 'C1 te acompaña hasta tu meta',
   welcome: 'Bienvenido a C1',
   signIn: 'Iniciar sesión',
   signUp: 'Crear cuenta',
@@ -360,6 +364,7 @@ const es: Dict = {
 const fr: Dict = {
   ...en,
   tagline: 'Votre coach nutrition IA',
+  loginTagline: 'C1 vous accompagne jusqu\u2019à votre objectif',
   welcome: 'Bienvenue sur C1',
   signIn: 'Se connecter',
   signUp: 'Créer un compte',

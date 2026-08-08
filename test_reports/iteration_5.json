@@ -1,0 +1,45 @@
+{
+  "summary": "All 13 items from the review request verified end-to-end. Backend: 33/33 pytest pass (11 test_c1_api + 5 test_password_reset + 5 test_recommend + 12 NEW test_plans_scans). New test_plans_scans.py covers: (1) new user defaults to plan='free' + legacy premium=false; (2) /scan-quota free returns limit=4, used=0, remaining=4, blocked=false; (3) invalid-b64 → 400 and used stays 0 (no scan_logs insert); (4) after seeding 4 scan_logs, /scan-meal returns 429 with detail={error:'scan_limit_reached', plan:'free', limit:4, reset_at, message}; (5) /ai/recommend gated 402 plus_required for free; (6) POST /auth/plan {premium} → /scan-quota limit=20, remaining=20; (7) seeding 20 → 429 with limit=20, plan=premium; (8) /ai/recommend + /ai/recommend/refine both 402 for premium; (9) upgrade to plus → limit=null, fair_use_limit=60, blocked=false; (10) real /ai/scan-meal call succeeds and increments used to 1; (11) after re-login with new JWT the quota (used=3) persists (tied to user_id, not device); (12) downgrade to free flips premium bool back to false. Regression: pre-existing test_premium_toggle and test_recommend fixture had to be updated (toggle now cycles 3-way free→premium→plus→free; recommend now needs plus not premium) — both updated and pass. Frontend (375x667 mobile viewport, freshly registered TEST_ui_<ts>@c1.app onboarded, JWT captured, plan flipped via /paywall UI): (a) scan-fab bounding box exactly x=20, bottom_offset=124, 64x64 — matches spec (moved from bottom-right to bottom-left, raised from 112 to 124). (b) login-tagline in EN reads 'C1 is with you every step to your goal'; after profile→lang-ar and returning to /login it reads 'C1 معك لتصل إلى هدفك' (different, non-empty). (c) /paywall shows all three plan cards testID plan-free / plan-premium / plan-plus, prices €0 / €1.99 / €4.99 all present in DOM, tapping plan-plus + paywall-subscribe calls POST /api/auth/plan and /auth/me confirms plan=plus. (d) On /profile with plus, plan-badge = 'C1 Plus', scan-quota-card visible, profile-notifications-row + profile-notifications-switch visible; toggling the switch does not crash (expo-notifications no-op on web). (e) home-complete-day on Home routes free/premium users to /paywall (verified free path). Only unresolved cosmetic: forgot-password link text is not localized in ar/de/es/fr — remains 'Forgot Password?' (fallback to English). NOT part of this review's spec (only loginTagline was required), reporting as info only. Pre-existing RN-web shadow*/pointerEvents deprecation warnings still present (already tracked from iteration_3/4).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/login (ar/de/es/fr)", "issues": ["The 'Forgot Password?' link text remains English in all non-English dictionaries because ar/de/es/fr do not override the forgotPassword key. Out of scope for this iteration (only loginTagline was requested) but worth adding to i18n.ts alongside the loginTagline translations already added."]}
+    ],
+    "react_native_issues": [
+      {"component": "RN web shadow* styles", "issue": "Pre-existing deprecation warning '\"shadow*\" style props are deprecated. Use \"boxShadow\".' — non-blocking. Reference: /app/frontend/app/(tabs)/_layout.tsx:95-98 (fab)."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_plans_scans.py (NEW - 12 tests)",
+    "/app/backend/tests/test_c1_api.py (updated test_premium_toggle for 3-way cycle)",
+    "/app/backend/tests/test_recommend.py (updated fixture to POST /auth/plan {plus})",
+    "/app/test_reports/pytest/pytest_plans_scans.xml",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional / out of scope) Add localized 'forgotPassword' key to ar/de/es/fr dictionaries in /app/frontend/src/i18n.ts — currently falls back to EN.",
+    "(Optional, cosmetic) Migrate shadow* style props to boxShadow to clear RN-web deprecation warning."
+  ],
+  "critical_code_review_comments": [
+    "server.py:79-84 SCAN_LIMITS + PLUS_FAIR_USE_LIMIT constants cleanly centralized; server.py:422-459 _scan_quota_state correctly builds limit/remaining/blocked per plan; reset_at computed from oldest doc in the 24h window.",
+    "server.py:789-863 scan_meal: quota is checked BEFORE calling the LLM, and scan_logs is inserted only AFTER a successful LLM call — so timeouts, 502s, and the 400 invalid-b64 short-circuit will NOT count against the quota. Confirmed by test_03 (invalid input keeps used=0) and by test_10 (successful call bumps to 1).",
+    "server.py:389-401 /auth/premium-toggle now cycles free→premium→plus→free; server.py:408-416 /auth/plan atomically sets both plan and legacy premium bool; server.py:287-297 _user_out normalizes plan and derives premium=plan∈{premium,plus} — consistent everywhere.",
+    "server.py:1143-1151 /ai/recommend and server.py:1229-1236 /ai/recommend/refine both gate on plan == 'plus' returning 402 with detail.error='plus_required' — spec-compliant.",
+    "_layout.tsx:82-87 fabWrap: {position:'absolute', left:20, bottom:124} — verified in browser (left=20, bottom_offset=124, 64x64).",
+    "paywall.tsx: three plans hard-coded with correct testIDs and price strings; activate() calls api.setPlan(selected) which POSTs /api/auth/plan; refresh() re-fetches /auth/me.",
+    "profile.tsx: plan-badge label logic ('C1 Plus' / 'C1 Premium' / 'Free') matches spec; scan-quota-card renders quota from /api/scan-quota with '∞' when limit is null; profile-notifications-row only rendered when plan==='plus'."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_plans_scans.py (NEW)",
+    "/app/backend/tests/test_c1_api.py (test_premium_toggle updated for 3-way cycle)",
+    "/app/backend/tests/test_recommend.py (fixture uses POST /auth/plan {plus})"
+  ],
+  "success_rate": {"backend": "100% (33/33)", "frontend": "100% (FAB position, EN+AR tagline, 3-plan paywall, plan-badge, scan-quota-card, notifications row/switch, complete-my-day paywall gating for free plan — all verified)"},
+  "seed_data_creation": "Per-test users prefixed TEST_ (plan_<ts>@c1.app for backend suite, ui_<ts>@c1.app for frontend Playwright). All cleaned up via DELETE /api/auth/account. Backend tests use pymongo to seed scan_logs directly (per agent-to-agent note) to avoid burning LLM tokens on the exhaustion cases (4 for free, 20 for premium). Only one real /ai/scan-meal call is exercised per plan tier (plus).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend now at 33/33 across 4 files. To simulate scan-limit exhaustion cheaply, seed db.scan_logs directly with {user_id, created_at: now - N mins, items_count:1} — the endpoint counts docs in the 24h window; only the final 429 attempt needs to hit /ai/scan-meal (no LLM cost since the quota gate short-circuits). For plan cycling, prefer POST /api/auth/plan {plan:'plus'} (deterministic) over the legacy 3-way toggle. On the frontend, expo-notifications is a no-op on web preview so profile-notifications-switch will visually toggle but no schedule is created; verify only no-crash. The frontend routes are Expo Router — use /login, /paywall, /(tabs)/profile, /(tabs)/ etc. Legacy /auth/premium-toggle test expectations were updated because the toggle now cycles 3-way.",
+  "rca_of_issue": "N/A — clean verification pass on the new plan/scan-quota bundle. Two pre-existing test files needed one-line updates to reflect the new API contract (3-way toggle + /recommend requiring plus). Zero product defects found."
+}

@@ -92,8 +92,13 @@ def test_dashboard(api_client, base_url, user_ctx):
 def test_premium_toggle(api_client, base_url, user_ctx):
     r = api_client.post(f"{base_url}/api/auth/premium-toggle", headers=user_ctx["auth"])
     assert r.status_code == 200
+    assert r.json()["plan"] == "premium"
     assert r.json()["premium"] is True
     r = api_client.post(f"{base_url}/api/auth/premium-toggle", headers=user_ctx["auth"])
+    assert r.json()["plan"] == "plus"
+    assert r.json()["premium"] is True
+    r = api_client.post(f"{base_url}/api/auth/premium-toggle", headers=user_ctx["auth"])
+    assert r.json()["plan"] == "free"
     assert r.json()["premium"] is False
 
 # -------- AI Coach chat --------

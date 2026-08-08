@@ -73,9 +73,9 @@ export default function Recommend() {
 
   const sessionIdRef = useRef<string>(`rec-${Math.random().toString(36).slice(2, 8)}`);
 
-  // Premium gate
+  // Plus gate
   useEffect(() => {
-    if (user && !user.premium) {
+    if (user && user.plan !== 'plus') {
       router.replace('/paywall');
     }
   }, [user, router]);

@@ -74,6 +74,14 @@ Gender = Literal["male", "female", "other"]
 Activity = Literal["sedentary", "light", "moderate", "active", "very_active"]
 Goal = Literal["lose", "maintain", "gain"]
 MealType = Literal["breakfast", "lunch", "dinner", "snack"]
+Plan = Literal["free", "premium", "plus"]
+
+SCAN_LIMITS: dict[str, Optional[int]] = {
+    "free": 4,
+    "premium": 20,
+    "plus": None,  # unlimited, still fair-use limited below
+}
+PLUS_FAIR_USE_LIMIT = 60  # scans / 24h hard cap even for plus (abuse guard)
 
 ACTIVITY_MULT = {
     "sedentary": 1.2,
@@ -141,7 +149,8 @@ class UserOut(BaseModel):
     language: str = "en"
     theme: str = "system"
     onboarded: bool = False
-    premium: bool = False
+    plan: Plan = "free"
+    premium: bool = False  # legacy: true for premium OR plus
     streak: int = 0
     best_streak: int = 0
     targets: Optional[Targets] = None
@@ -278,6 +287,12 @@ def _calc_targets(u: dict) -> Optional[Targets]:
 def _user_out(u: dict) -> UserOut:
     u = {**u}
     u.pop("password_hash", None)
+    # Normalize plan and legacy premium bool
+    plan = u.get("plan")
+    if plan not in ("free", "premium", "plus"):
+        plan = "premium" if u.get("premium") else "free"
+    u["plan"] = plan
+    u["premium"] = plan in ("premium", "plus")
     u["targets"] = _calc_targets(u)
     return UserOut(**u)
 
@@ -317,6 +332,7 @@ async def register(inp: RegisterIn):
         "language": "en",
         "theme": "system",
         "onboarded": False,
+        "plan": "free",
         "premium": False,
         "streak": 0,
         "best_streak": 0,
@@ -371,11 +387,81 @@ async def update_profile(inp: ProfileIn, user=Depends(get_current_user)):
 
 @api.post("/auth/premium-toggle", response_model=UserOut)
 async def premium_toggle(user=Depends(get_current_user)):
-    """Stubbed paywall: flip premium on/off for demo."""
-    new_val = not user.get("premium", False)
-    await db.users.update_one({"id": user["id"]}, {"$set": {"premium": new_val}})
+    """Legacy stub: cycles free → premium → plus → free (used by demo toggle)."""
+    order = ["free", "premium", "plus"]
+    current = user.get("plan")
+    if current not in order:
+        current = "premium" if user.get("premium") else "free"
+    next_plan = order[(order.index(current) + 1) % 3]
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"plan": next_plan, "premium": next_plan in ("premium", "plus")}},
+    )
     fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
     return _user_out(fresh)
+
+
+class PlanIn(BaseModel):
+    plan: Plan
+
+
+@api.post("/auth/plan", response_model=UserOut)
+async def set_plan(inp: PlanIn, user=Depends(get_current_user)):
+    """Stubbed subscription setter — in production this is driven by verified IAP receipts."""
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"plan": inp.plan, "premium": inp.plan in ("premium", "plus")}},
+    )
+    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    return _user_out(fresh)
+
+
+# ---------------------------------------------------------------------------
+# Scan quota (per-plan, 24h rolling window, server-enforced)
+# ---------------------------------------------------------------------------
+async def _scan_count_last_24h(user_id: str) -> int:
+    since = datetime.now(tz=timezone.utc) - timedelta(hours=24)
+    return await db.scan_logs.count_documents(
+        {"user_id": user_id, "created_at": {"$gte": since}}
+    )
+
+
+async def _scan_quota_state(user: dict) -> dict:
+    plan = user.get("plan") or ("premium" if user.get("premium") else "free")
+    used = await _scan_count_last_24h(user["id"])
+    if plan == "plus":
+        limit = None
+        fair = PLUS_FAIR_USE_LIMIT
+        remaining = max(0, fair - used)
+        blocked = used >= fair
+    else:
+        limit = SCAN_LIMITS[plan]
+        fair = limit
+        remaining = max(0, (limit or 0) - used) if limit is not None else None
+        blocked = limit is not None and used >= limit
+    # Reset time = when the oldest scan in the window falls out (i.e. +24h from its created_at)
+    reset_at = None
+    if used > 0:
+        oldest = await db.scan_logs.find_one(
+            {"user_id": user["id"], "created_at": {"$gte": datetime.now(tz=timezone.utc) - timedelta(hours=24)}},
+            sort=[("created_at", 1)],
+        )
+        if oldest:
+            reset_at = (oldest["created_at"] + timedelta(hours=24)).isoformat()
+    return {
+        "plan": plan,
+        "limit": limit,
+        "used": used,
+        "remaining": remaining,
+        "fair_use_limit": fair,
+        "blocked": blocked,
+        "reset_at": reset_at,
+    }
+
+
+@api.get("/scan-quota")
+async def scan_quota(user=Depends(get_current_user)):
+    return await _scan_quota_state(user)
 
 
 @api.delete("/auth/account")
@@ -704,6 +790,22 @@ def _parse_scan_json(text: str) -> list[FoodItem]:
 async def scan_meal(inp: ScanIn, user=Depends(get_current_user)):
     if not EMERGENT_LLM_KEY:
         raise HTTPException(500, "AI key not configured")
+    # Enforce per-plan scan limit (24h rolling window)
+    quota = await _scan_quota_state(user)
+    if quota["blocked"]:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "scan_limit_reached",
+                "plan": quota["plan"],
+                "limit": quota["fair_use_limit"],
+                "reset_at": quota["reset_at"],
+                "message": (
+                    f"You've reached your daily scan limit ({quota['fair_use_limit']} scans / 24h) "
+                    f"for the {quota['plan']} plan."
+                ),
+            },
+        )
     raw_b64 = _strip_data_uri(inp.image_b64)
     # sanity check
     try:
@@ -749,6 +851,15 @@ async def scan_meal(inp: ScanIn, user=Depends(get_current_user)):
         raise HTTPException(502, f"AI vision failed: {last_exc}")
 
     items = _parse_scan_json(collected)
+    # Only count a scan when we successfully processed it (i.e. reached this line).
+    await db.scan_logs.insert_one(
+        {
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"],
+            "created_at": datetime.now(tz=timezone.utc),
+            "items_count": len(items),
+        }
+    )
     return ScanOut(items=items)
 
 
@@ -1033,6 +1144,11 @@ async def _remaining_budgets(user: dict, log_date: str) -> dict:
 async def recommend(inp: RecommendIn, user=Depends(get_current_user)):
     if not EMERGENT_LLM_KEY:
         raise HTTPException(500, "AI key not configured")
+    if (user.get("plan") or ("premium" if user.get("premium") else "free")) != "plus":
+        raise HTTPException(
+            status_code=402,
+            detail={"error": "plus_required", "message": "Meal recommendations are a C1 Plus feature."},
+        )
     log_date = inp.log_date or _today()
     remaining = await _remaining_budgets(user, log_date)
 
@@ -1113,6 +1229,11 @@ async def recommend(inp: RecommendIn, user=Depends(get_current_user)):
 async def recommend_refine(inp: RefineIn, user=Depends(get_current_user)):
     if not EMERGENT_LLM_KEY:
         raise HTTPException(500, "AI key not configured")
+    if (user.get("plan") or ("premium" if user.get("premium") else "free")) != "plus":
+        raise HTTPException(
+            status_code=402,
+            detail={"error": "plus_required", "message": "Meal recommendations are a C1 Plus feature."},
+        )
     remaining = await _remaining_budgets(user, _today())
     user_prompt = (
         f"Current recommendation JSON: {inp.item.model_dump_json()}. "

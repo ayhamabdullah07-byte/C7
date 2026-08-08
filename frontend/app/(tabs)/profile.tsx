@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '@/src/api';
 import { useAuth } from '@/src/auth';
 import { LANGUAGES, currentLang, setLang, t } from '@/src/i18n';
+import * as notif from '@/src/notifications';
 import { tokens } from '@/src/theme';
 
 export default function Profile() {
@@ -13,6 +14,19 @@ export default function Profile() {
   const { user, signOut, refresh } = useAuth();
   const [langOpen, setLangOpen] = useState(false);
   const [lang, setL] = useState(currentLang());
+  const [quota, setQuota] = useState<any>(null);
+  const [notifOn, setNotifOn] = useState(false);
+  const [notifBusy, setNotifBusy] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const q = await api.scanQuota();
+        setQuota(q);
+      } catch {}
+      setNotifOn(await notif.isEnabled());
+    })();
+  }, [user?.plan]);
 
   const chooseLang = async (code: string) => {
     await setLang(code);
@@ -29,6 +43,23 @@ export default function Profile() {
     } catch {}
   };
 
+  const toggleNotifications = async (v: boolean) => {
+    setNotifBusy(true);
+    try {
+      if (v) {
+        const ok = await notif.enableForPlus(user?.name);
+        setNotifOn(ok);
+      } else {
+        await notif.disable();
+        setNotifOn(false);
+      }
+    } catch {
+      setNotifOn(false);
+    } finally {
+      setNotifBusy(false);
+    }
+  };
+
   const deleteAcc = async () => {
     try {
       await api.deleteAccount();
@@ -38,6 +69,8 @@ export default function Profile() {
   };
 
   const targets = user?.targets;
+  const plan: 'free' | 'premium' | 'plus' = user?.plan || 'free';
+  const planLabel = plan === 'plus' ? 'C1 Plus' : plan === 'premium' ? 'C1 Premium' : 'Free';
 
   return (
     <SafeAreaView style={s.wrap} edges={['top']}>
@@ -48,13 +81,30 @@ export default function Profile() {
           </View>
           <Text style={s.name} testID="profile-name">{user?.name}</Text>
           <Text style={s.email}>{user?.email}</Text>
-          {user?.premium && (
-            <View style={s.premiumBadge} testID="premium-badge">
-              <Ionicons name="star" size={12} color={tokens.onBrand} />
-              <Text style={s.premiumText}>{t('premiumActive')}</Text>
-            </View>
-          )}
+          <View style={[s.premiumBadge, plan === 'free' && s.freeBadge]} testID="plan-badge">
+            {plan !== 'free' && <Ionicons name="star" size={12} color={tokens.onBrand} />}
+            <Text style={[s.premiumText, plan === 'free' && { color: tokens.textDim }]}>{planLabel}</Text>
+          </View>
         </View>
+
+        {quota && (
+          <View style={s.card} testID="scan-quota-card">
+            <Text style={s.cardTitle}>Scans (last 24h)</Text>
+            <View style={s.quotaRow}>
+              <Text style={s.quotaUsed}>
+                {quota.used}
+                <Text style={s.quotaMax}> / {quota.limit === null ? '∞' : quota.limit}</Text>
+              </Text>
+              <Text style={s.quotaSub}>
+                {quota.blocked
+                  ? 'Daily limit reached'
+                  : quota.remaining === null
+                  ? 'Unlimited (fair-use)'
+                  : `${quota.remaining} remaining`}
+              </Text>
+            </View>
+          </View>
+        )}
 
         {targets && (
           <View style={s.card}>
@@ -95,10 +145,27 @@ export default function Profile() {
           <Row
             testID="profile-toggle-premium"
             icon="star-outline"
-            label={user?.premium ? 'Cancel Premium (stub)' : 'Toggle Premium (stub)'}
+            label={`Change plan (stub) — ${planLabel}`}
             value=""
             onPress={togglePremium}
           />
+          {plan === 'plus' && (
+            <View style={s.rowLike} testID="profile-notifications-row">
+              <Ionicons name="notifications-outline" size={18} color={tokens.textDim} />
+              <View style={{ flex: 1 }}>
+                <Text style={s.rowLabel}>Daily reminders</Text>
+                <Text style={s.rowHint}>Lunch nudge at 11:00 · evening at 19:00</Text>
+              </View>
+              <Switch
+                testID="profile-notifications-switch"
+                value={notifOn}
+                onValueChange={toggleNotifications}
+                disabled={notifBusy}
+                trackColor={{ true: tokens.brand, false: tokens.bg3 }}
+                thumbColor={notifOn ? tokens.onBrand : tokens.textMute}
+              />
+            </View>
+          )}
           <Row
             testID="profile-signout"
             icon="log-out-outline"
@@ -203,7 +270,17 @@ const s = StyleSheet.create({
     flexDirection: 'row', gap: 4, alignItems: 'center',
     backgroundColor: tokens.brand, paddingHorizontal: 10, height: 24, borderRadius: 999, marginTop: 6,
   },
+  freeBadge: { backgroundColor: tokens.bg3, borderWidth: 1, borderColor: tokens.border },
   premiumText: { color: tokens.onBrand, fontWeight: '800', fontSize: 11 },
+  quotaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', padding: 10, paddingTop: 4 },
+  quotaUsed: { color: tokens.text, fontSize: 26, fontWeight: '900', letterSpacing: -0.5 },
+  quotaMax: { color: tokens.textMute, fontSize: 14, fontWeight: '600' },
+  quotaSub: { color: tokens.textDim, fontSize: 12 },
+  rowLike: {
+    flexDirection: 'row', alignItems: 'center', gap: tokens.md,
+    padding: tokens.md, borderBottomWidth: 1, borderBottomColor: tokens.divider,
+  },
+  rowHint: { color: tokens.textMute, fontSize: 11, marginTop: 2 },
   card: {
     backgroundColor: tokens.bg2,
     borderRadius: tokens.rLg,

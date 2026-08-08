@@ -38,5 +38,14 @@ C1 is a premium, AI-powered mobile nutrition, calorie tracking, and weight-manag
 - Screen `/app/frontend/app/recommend.tsx` — Premium-gated. Remaining-budget card, filter chip row, meal + snack sections, per-card "Talk to C1" bottom sheet with quick-ask chips and live macro updates, one-tap "Add to diary".
 - Dashboard entry: `home-complete-day` card routes premium → `/recommend`, free → `/paywall`.
 
+## Feature: Forgot Password – added
+- `POST /api/auth/forgot-password` — generic 200 for any email (no user enumeration). If registered, mints a 6-digit code, stores SHA-256 hash in `password_resets` collection with 15-min TTL, sends a branded HTML email via Emergent-managed Resend integration (`EMERGENT_EMAIL_KEY` + `EMAIL_FROM_NAME=C1`).
+- `POST /api/auth/reset-password` — accepts email + code + new_password. Constant-time hmac compare on hash; caps at 5 attempts per code; bcrypt-updates the user password; invalidates the code on use. Requesting a new code invalidates prior unused codes for that email.
+- Login screen now shows "Forgot Password?" link (`testID='login-forgot-password'`) directly below the password input.
+- New screen `/(auth)/forgot-password.tsx` with two stages: request-code and verify (code + new password) + resend option.
+
+## UI polish
+- Scan FAB in tab layout moved slightly up (bottom offset 92 → 112) for better thumb reach; horizontal position, size, and functionality unchanged.
+
 ## Testing accounts
 See `/app/memory/test_credentials.md`.

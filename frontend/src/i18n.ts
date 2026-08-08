@@ -94,6 +94,17 @@ const en = {
   medicalDisclaimer:
     'C1 provides general nutrition information and is not a replacement for professional medical or nutrition advice.',
   errors: 'Something went wrong',
+  // forgot password
+  forgotPassword: 'Forgot Password?',
+  resetTitle: 'Reset your password',
+  resetSub: 'Enter your registered email and we\'ll send you a 6-digit code.',
+  sendCode: 'Send reset code',
+  codeSent: 'If that email is registered, a reset code has been sent.',
+  enterCode: '6-digit code',
+  newPassword: 'New password',
+  resetSubmit: 'Reset password',
+  passwordChanged: 'Password updated. You can now sign in.',
+  didntGetCode: "Didn't get a code? Resend",
   // recommendations
   completeMyDay: 'Complete My Day',
   completeMyDaySub: 'AI meal & snack suggestions to hit your goals',

@@ -82,6 +82,18 @@ export const api = {
     req('/auth/register', { method: 'POST', body: JSON.stringify({ email, password, name }) }),
   login: (email: string, password: string) =>
     req('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  forgotPassword: (email: string) =>
+    req('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+      timeoutMs: 20000,
+    }),
+  resetPassword: (email: string, code: string, new_password: string) =>
+    req('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ email, code, new_password }),
+      timeoutMs: 20000,
+    }),
   me: () => req('/auth/me'),
   updateProfile: (p: any) =>
     req('/auth/profile', { method: 'PATCH', body: JSON.stringify(p) }),

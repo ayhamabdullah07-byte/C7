@@ -1,0 +1,39 @@
+{
+  "summary": "All requested changes verified end-to-end. Backend: 21/21 pytest tests pass (11 regression in test_c1_api.py + 5 recommend in test_recommend.py + 5 NEW password-reset tests in test_password_reset.py). Password reset flow: (1) POST /api/auth/forgot-password returns generic 200 for both unregistered (no DB row) and registered (creates password_resets doc with sha256(code) 64-hex hash, attempts=0, used=False, expires_at ~15min future) — same response either way (no enumeration). (2) POST /api/auth/reset-password with wrong code → 400 and increments attempts. (3) With correct minted code → 200; user login with new password succeeds AND old password returns 401; replay of same code → 400 (row now used). (4) A second /forgot-password call invalidates any prior unused code for that email (verified: only 1 unused row remains and it is not the previous code_hash). Frontend (mobile viewport 375x667): (a) Login screen renders all 5 testIDs (login-email, login-password, login-submit, login-forgot-password, goto-register). The 'Forgot Password?' link is right-aligned (right edge x=351 in a 375-wide viewport) and positioned directly below the password input (pw.bottom=294 → fp.top=300, gap 6px). Tapping login-forgot-password navigates to /forgot-password. (b) /forgot-password renders forgot-title/forgot-email/forgot-send-code/forgot-back-to-login in the request stage. After submitting an email, the verify stage renders forgot-code, forgot-new-password, forgot-submit-reset, forgot-resend and shows the forgot-code-sent info banner. (c) FAB: after login with a freshly onboarded user, [data-testid=scan-fab] is visible with bounding box confirming right=20, bottom=112, size 64x64, and tapping it navigates to /scan. Non-regression: welcome, login, register screens all render correctly; frontend bundles with only the pre-existing shadow*/pointerEvents RN-web deprecation warnings (already tracked in iteration_3).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "RN web shadow* styles", "issue": "Pre-existing console warning: '\"shadow*\" style props are deprecated. Use \"boxShadow\".' — still present, non-blocking. Reference: /app/frontend/app/(tabs)/_layout.tsx:95-98 and other screens using shadowColor/shadowOpacity/shadowRadius/shadowOffset."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_password_reset.py (NEW)",
+    "/app/backend/tests/test_c1_api.py",
+    "/app/backend/tests/test_recommend.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_password_reset.xml",
+    "/app/test_reports/pytest/pytest_regression.xml",
+    "/app/test_reports/pytest/pytest_recommend.xml"
+  ],
+  "action_items": [
+    "(Optional, cosmetic) Migrate shadow* style props to boxShadow across screens to clear the pre-existing RN-web deprecation warning. Non-blocking."
+  ],
+  "critical_code_review_comments": [
+    "server.py:462-489 /auth/forgot-password: correctly performs SAME response irrespective of email existence (no enumeration). Uses secrets.randbelow for the 6-digit code and stores only the sha256 hash. Prior unused rows for the same email are invalidated inside a single update_many BEFORE the new insert — verified by test_new_forgot_invalidates_prior_unused.",
+    "server.py:492-522 /auth/reset-password: uses hmac.compare_digest against sha256(code) to defeat timing attacks. Caps brute force at 5 attempts per record (fails then marks row used with 429). Marks row as used on success and stamps used_at. Also re-checks user existence before updating password_hash. Solid.",
+    "server.py:405-406 _hash_code = sha256(code) — matches what the testing harness uses to mint a known code.",
+    "login.tsx:70-77 Forgot link uses hitSlop=8 and alignSelf:'flex-end' → touch target still >44 effective; text color = tokens.brand at 13px is readable on tokens.bg. OK.",
+    "forgot-password.tsx: robust local validation before hitting the API (email regex, /^\\d{6}$/ for code, min 6 for new password). Resend does not clear the stage. Info banner (forgot-code-sent) provides good UX feedback.",
+    "_layout.tsx:82-87 fabWrap changed bottom:92 → 112; right:20 unchanged; size 64x64 unchanged — all verified in the browser bounding box (right_offset=20, bottom_offset=112, 64x64)."
+  ],
+  "updated_files": ["/app/backend/tests/test_password_reset.py (NEW)"],
+  "success_rate": {"backend": "100% (21/21 across 3 test files)", "frontend": "100% (all specified testIDs + navigation + FAB position + verify-stage transition verified)"},
+  "seed_data_creation": "Per-test-file fresh TEST_pwreset_<ts>@c1.app (backend) and TEST_uiforgot_<ts>@c1.app / TEST_fab_<ts>@c1.app (frontend). All cleaned up via DELETE /api/auth/account.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend regression suite is now 21/21: test_c1_api.py (11) + test_recommend.py (5) + test_password_reset.py (5). To mint a known 6-digit reset code, use synchronous pymongo (motor's async loop conflicts with pytest); insert into db.password_resets with code_hash = sha256(code).hexdigest(), attempts=0, used=False, expires_at = now+15min, and first mark any prior {email, used:False} row as used to mimic the endpoint's invalidation. To exercise the /recommend + /forgot flows through the UI, the pattern used here works well: fetch('/api/auth/register') from page.evaluate to seed a user, then interact with the RN inputs (fill + click force=True). Onboarding takes a single PATCH /api/auth/profile with all 6 required fields.",
+  "rca_of_issue": "N/A — verification of a small UI move + a new password-reset feature. Zero defects found. Only remaining item is the pre-existing shadow*/pointerEvents RN-web deprecation warnings already tracked in iteration_3."
+}

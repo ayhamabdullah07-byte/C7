@@ -6,16 +6,20 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
+import hmac
 import json
 import logging
 import os
 import re
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone, date
 from pathlib import Path
 from typing import Any, Literal, Optional
 
 import bcrypt
+import httpx
 import jwt
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Header, status
@@ -44,6 +48,11 @@ EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
 JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_ALG = os.environ.get("JWT_ALG", "HS256")
 JWT_EXPIRE_HOURS = int(os.environ.get("JWT_EXPIRE_HOURS", "720"))
+
+# Emergent-managed email (Resend proxy)
+EMAIL_BASE_URL = "https://integrations.emergentagent.com"
+EMERGENT_EMAIL_KEY = os.environ.get("EMERGENT_EMAIL_KEY", "")
+EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "C1")
 
 AI_TEXT_MODEL = ("gemini", "gemini-3-flash-preview")
 AI_VISION_MODEL = ("gemini", "gemini-3-flash-preview")
@@ -378,6 +387,141 @@ async def delete_account(user=Depends(get_current_user)):
     await db.weight_logs.delete_many({"user_id": uid})
     await db.chat_messages.delete_many({"user_id": uid})
     return {"deleted": True}
+
+
+# ---------------------------------------------------------------------------
+# Password reset (forgot password)
+# ---------------------------------------------------------------------------
+class ForgotIn(BaseModel):
+    email: EmailStr
+
+
+class ResetIn(BaseModel):
+    email: EmailStr
+    code: str
+    new_password: str = Field(min_length=6)
+
+
+def _hash_code(code: str) -> str:
+    return hashlib.sha256(code.encode()).hexdigest()
+
+
+def _generic_forgot_ok():
+    # Same response whether the email exists or not (avoid user enumeration).
+    return {"ok": True, "message": "If that email is registered, a reset code has been sent."}
+
+
+async def _send_reset_email(email: str, code: str) -> None:
+    if not EMERGENT_EMAIL_KEY:
+        logger.error("EMERGENT_EMAIL_KEY not configured; cannot send reset email")
+        return
+    html = f"""\
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0A0A0C;padding:32px 0;font-family:Arial,Helvetica,sans-serif;">
+  <tr><td align="center">
+    <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background:#141417;border-radius:20px;padding:32px;">
+      <tr><td align="center">
+        <div style="display:inline-block;width:64px;height:64px;border-radius:18px;background:#D4AF37;line-height:64px;color:#0A0A0C;font-size:28px;font-weight:900;letter-spacing:-1px;">C1</div>
+      </td></tr>
+      <tr><td style="padding-top:24px;text-align:center;">
+        <h1 style="color:#F4F4F5;font-size:22px;margin:0 0 8px 0;font-weight:800;">Reset your password</h1>
+        <p style="color:#A1A1AA;font-size:14px;line-height:20px;margin:0 0 24px 0;">
+          Use the code below to reset your C1 password. This code expires in 15 minutes.
+        </p>
+        <div style="display:inline-block;background:#332A0D;border:1px solid #D4AF37;border-radius:12px;padding:14px 28px;">
+          <span style="color:#D4AF37;font-size:32px;font-weight:900;letter-spacing:8px;">{code}</span>
+        </div>
+        <p style="color:#71717A;font-size:12px;line-height:18px;margin:24px 0 0 0;">
+          If you didn't request this, you can safely ignore this email.<br/>
+          Your password won't change until you enter this code in the app.
+        </p>
+      </td></tr>
+    </table>
+    <p style="color:#52525B;font-size:11px;margin-top:16px;">C1 — Your AI nutrition coach</p>
+  </td></tr>
+</table>
+"""
+    payload = {
+        "to": [email],
+        "subject": "Your C1 password reset code",
+        "html": html,
+        "from_name": EMAIL_FROM_NAME,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(
+                f"{EMAIL_BASE_URL}/api/v1/email/send",
+                headers={"X-Email-Key": EMERGENT_EMAIL_KEY},
+                json=payload,
+            )
+        if resp.status_code >= 300:
+            logger.error("password reset email failed: %s %s", resp.status_code, resp.text[:200])
+    except Exception as e:
+        logger.error("password reset email exception: %s", e)
+
+
+@api.post("/auth/forgot-password")
+async def forgot_password(inp: ForgotIn):
+    email = inp.email.lower()
+    user = await db.users.find_one({"email": email})
+    if user:
+        # 6-digit numeric code
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        doc = {
+            "email": email,
+            "code_hash": _hash_code(code),
+            "attempts": 0,
+            "created_at": datetime.now(tz=timezone.utc),
+            "expires_at": datetime.now(tz=timezone.utc) + timedelta(minutes=15),
+            "used": False,
+        }
+        # Invalidate any prior codes for this email, then insert a fresh one.
+        await db.password_resets.update_many(
+            {"email": email, "used": False},
+            {"$set": {"used": True, "invalidated_at": datetime.now(tz=timezone.utc)}},
+        )
+        await db.password_resets.insert_one(doc)
+        # Send email but don't block on delivery failure.
+        try:
+            await _send_reset_email(email, code)
+        except Exception as e:
+            logger.warning("send_reset_email failed: %s", e)
+    # Same response either way to prevent user enumeration.
+    return _generic_forgot_ok()
+
+
+@api.post("/auth/reset-password")
+async def reset_password(inp: ResetIn):
+    email = inp.email.lower()
+    # Look up latest unused, unexpired code for this email.
+    rec = await db.password_resets.find_one(
+        {"email": email, "used": False, "expires_at": {"$gt": datetime.now(tz=timezone.utc)}},
+        sort=[("created_at", -1)],
+    )
+    if not rec:
+        raise HTTPException(400, "Invalid or expired code")
+    # Cap attempts per code to prevent brute force (6-digit = 1M space).
+    if rec.get("attempts", 0) >= 5:
+        await db.password_resets.update_one({"_id": rec["_id"]}, {"$set": {"used": True}})
+        raise HTTPException(429, "Too many attempts. Request a new code.")
+    if not hmac.compare_digest(rec["code_hash"], _hash_code(inp.code.strip())):
+        await db.password_resets.update_one({"_id": rec["_id"]}, {"$inc": {"attempts": 1}})
+        raise HTTPException(400, "Invalid or expired code")
+    # Verify the user still exists.
+    user = await db.users.find_one({"email": email})
+    if not user:
+        raise HTTPException(400, "Invalid or expired code")
+    # Update password + invalidate this reset record.
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"password_hash": _hash_pw(inp.new_password)}},
+    )
+    await db.password_resets.update_one(
+        {"_id": rec["_id"]},
+        {"$set": {"used": True, "used_at": datetime.now(tz=timezone.utc)}},
+    )
+    return {"ok": True}
+
+
 
 
 # ---------------------------------------------------------------------------

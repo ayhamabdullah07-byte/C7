@@ -67,6 +67,14 @@ export default function Login() {
             value={password}
             onChangeText={setPassword}
           />
+          <Pressable
+            testID="login-forgot-password"
+            onPress={() => router.push('/forgot-password')}
+            style={s.forgotWrap}
+            hitSlop={8}
+          >
+            <Text style={s.forgotText}>{t('forgotPassword')}</Text>
+          </Pressable>
           {err ? <Text style={s.err}>{err}</Text> : null}
           <Pressable
             testID="login-submit"
@@ -107,6 +115,8 @@ const s = StyleSheet.create({
     borderColor: tokens.border,
   },
   err: { color: tokens.danger, fontSize: 13 },
+  forgotWrap: { alignSelf: 'flex-end', marginTop: -6, marginBottom: 2 },
+  forgotText: { color: tokens.brand, fontSize: 13, fontWeight: '700' },
   btn: {
     backgroundColor: tokens.brand,
     height: 56,

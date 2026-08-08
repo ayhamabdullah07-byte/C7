@@ -83,7 +83,7 @@ const s = StyleSheet.create({
   fabWrap: {
     position: 'absolute',
     right: 20,
-    bottom: 92,
+    bottom: 112,
   },
   fab: {
     width: 64,

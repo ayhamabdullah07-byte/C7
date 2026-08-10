@@ -106,9 +106,24 @@ export const api = {
   me: () => req('/auth/me'),
   updateProfile: (p: any) =>
     req('/auth/profile', { method: 'PATCH', body: JSON.stringify(p) }),
-  togglePremium: () => req('/auth/premium-toggle', { method: 'POST' }),
-  setPlan: (plan: 'free' | 'premium' | 'plus') =>
-    req('/auth/plan', { method: 'POST', body: JSON.stringify({ plan }) }),
+  entitlement: () => req('/entitlement'),
+  verifyApple: (jws_representation: string, transaction_id: string, product_id: string) =>
+    req('/iap/apple/verify', {
+      method: 'POST',
+      body: JSON.stringify({ jws_representation, transaction_id, product_id }),
+    }),
+  verifyGoogle: (
+    purchase_token: string,
+    subscription_id: string,
+    base_plan_id: string,
+    product_id: string,
+  ) =>
+    req('/iap/google/verify', {
+      method: 'POST',
+      body: JSON.stringify({ purchase_token, subscription_id, base_plan_id, product_id }),
+    }),
+  restore: (platform: 'apple' | 'google', entries: any[]) =>
+    req('/iap/restore', { method: 'POST', body: JSON.stringify({ platform, entries }) }),
   scanQuota: () => req('/scan-quota'),
   deleteAccount: () => req('/auth/account', { method: 'DELETE' }),
 

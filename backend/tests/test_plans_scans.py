@@ -113,7 +113,9 @@ def test_05_recommend_gated_for_free(user):
 
 
 def test_06_upgrade_to_premium_shows_limit_20(user):
-    r = requests.post(f"{API}/auth/plan", headers=H(user), json={"plan": "premium"})
+    from tests.conftest import grant_plan_via_subscription
+    grant_plan_via_subscription(user["id"], "premium")
+    r = requests.get(f"{API}/auth/me", headers=H(user))
     assert r.status_code == 200
     me = r.json()
     assert me["plan"] == "premium" and me["premium"] is True
@@ -149,7 +151,9 @@ def test_08_recommend_still_gated_for_premium(user):
 
 
 def test_09_upgrade_to_plus(user):
-    r = requests.post(f"{API}/auth/plan", headers=H(user), json={"plan": "plus"})
+    from tests.conftest import grant_plan_via_subscription
+    grant_plan_via_subscription(user["id"], "plus")
+    r = requests.get(f"{API}/auth/me", headers=H(user))
     assert r.status_code == 200
     me = r.json()
     assert me["plan"] == "plus" and me["premium"] is True  # legacy bool includes plus
@@ -172,7 +176,7 @@ def test_10_plus_scan_succeeds_and_counts(user):
 
 def test_11_persistence_across_new_jwt(user):
     # Set to premium and seed 3 scans
-    requests.post(f"{API}/auth/plan", headers=H(user), json={"plan": "premium"})
+    from tests.conftest import grant_plan_via_subscription; grant_plan_via_subscription(user["id"], "premium")
     _seed_scans(user["id"], 3)
     # Login again → new JWT for same user
     r = requests.post(f"{API}/auth/login", json={"email": user["email"], "password": "Test1234!"})
@@ -185,7 +189,9 @@ def test_11_persistence_across_new_jwt(user):
 
 
 def test_12_downgrade_to_free_updates_legacy_bool(user):
-    r = requests.post(f"{API}/auth/plan", headers=H(user), json={"plan": "free"})
+    from tests.conftest import grant_plan_via_subscription
+    grant_plan_via_subscription(user["id"], "free")
+    r = requests.get(f"{API}/auth/me", headers=H(user))
     assert r.status_code == 200
     me = r.json()
     assert me["plan"] == "free" and me["premium"] is False

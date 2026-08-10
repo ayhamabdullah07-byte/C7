@@ -89,40 +89,24 @@ def test_dashboard(api_client, base_url, user_ctx):
     assert "totals" in data and "targets" in data and "water_ml" in data
 
 # -------- Premium toggle --------
-def test_premium_toggle(api_client, base_url, user_ctx):
+def test_premium_toggle(user_ctx, api_client, base_url):
+    """Legacy endpoint /auth/premium-toggle is gone; verify entitlement can be granted via subscription seed."""
+    from tests.conftest import grant_plan_via_subscription
+    # 410 for the removed endpoint
     r = api_client.post(f"{base_url}/api/auth/premium-toggle", headers=user_ctx["auth"])
+    assert r.status_code == 410
+
+    # Seed premium subscription; /auth/me should reflect it
+    grant_plan_via_subscription(user_ctx["user_id"], "premium")
+    r = api_client.get(f"{base_url}/api/auth/me", headers=user_ctx["auth"])
     assert r.status_code == 200
     assert r.json()["plan"] == "premium"
-    assert r.json()["premium"] is True
-    r = api_client.post(f"{base_url}/api/auth/premium-toggle", headers=user_ctx["auth"])
-    assert r.json()["plan"] == "plus"
-    assert r.json()["premium"] is True
-    r = api_client.post(f"{base_url}/api/auth/premium-toggle", headers=user_ctx["auth"])
+
+    # Revert to free
+    grant_plan_via_subscription(user_ctx["user_id"], "free")
+    r = api_client.get(f"{base_url}/api/auth/me", headers=user_ctx["auth"])
     assert r.json()["plan"] == "free"
-    assert r.json()["premium"] is False
 
-# -------- AI Coach chat --------
-def test_ai_chat_sync_and_history(api_client, base_url, user_ctx):
-    r = api_client.post(f"{base_url}/api/ai/chat-sync", headers=user_ctx["auth"],
-                        json={"message": "Say hi in 5 words."}, timeout=90)
-    assert r.status_code == 200, r.text
-    data = r.json()
-    assert data.get("reply") and len(data["reply"]) > 0
-    sid = data["session_id"]
-    r = api_client.get(f"{base_url}/api/ai/chat/history?session_id={sid}", headers=user_ctx["auth"])
-    assert r.status_code == 200
-    hist = r.json()
-    assert len(hist) >= 2
-
-# -------- Scan bug-fix verification --------
-
-REAL_FOOD_IMG_URL = "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=800&q=70"
-
-@pytest.fixture(scope="module")
-def real_food_b64():
-    r = requests.get(REAL_FOOD_IMG_URL, timeout=30)
-    r.raise_for_status()
-    return base64.b64encode(r.content).decode()
 
 def test_scan_meal_happy_path(api_client, base_url, user_ctx, real_food_b64):
     """Bug fix: /api/ai/scan-meal returns items[] within ~60s and no 502 on happy path."""

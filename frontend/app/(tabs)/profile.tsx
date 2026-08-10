@@ -36,13 +36,6 @@ export default function Profile() {
     setTimeout(() => refresh(), 100);
   };
 
-  const togglePremium = async () => {
-    try {
-      await api.togglePremium();
-      await refresh();
-    } catch {}
-  };
-
   const toggleNotifications = async (v: boolean) => {
     setNotifBusy(true);
     try {
@@ -143,11 +136,11 @@ export default function Profile() {
             onPress={() => setLangOpen(true)}
           />
           <Row
-            testID="profile-toggle-premium"
+            testID="profile-manage-plan"
             icon="star-outline"
-            label={`Change plan (stub) — ${planLabel}`}
+            label={`Manage plan — ${planLabel}`}
             value=""
-            onPress={togglePremium}
+            onPress={() => router.push('/paywall')}
           />
           {plan === 'plus' && (
             <View style={s.rowLike} testID="profile-notifications-row">

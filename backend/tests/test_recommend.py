@@ -19,10 +19,12 @@ def premium_user(api_client, base_url):
                               "activity": "moderate", "goal": "lose"})
     assert r.status_code == 200, r.text
     # set plan to 'plus' — /recommend now requires plus, not just premium
-    r = api_client.post(f"{base_url}/api/auth/plan", headers=auth, json={"plan": "plus"})
-    assert r.status_code == 200
-    assert r.json()["plan"] == "plus"
-    assert r.json()["premium"] is True
+    from tests.conftest import grant_plan_via_subscription
+    uid = r.json()["id"]
+    grant_plan_via_subscription(uid, "plus")
+    me = api_client.get(f"{base_url}/api/auth/me", headers=auth).json()
+    assert me["plan"] == "plus"
+    assert me["premium"] is True
     yield {"auth": auth, "email": email}
     # cleanup
     api_client.delete(f"{base_url}/api/auth/account", headers=auth)

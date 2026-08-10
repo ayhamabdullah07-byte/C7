@@ -45,14 +45,21 @@ C1 is a premium, AI-powered mobile nutrition, calorie tracking, and weight-manag
 - New screen `/(auth)/forgot-password.tsx` with two stages: request-code and verify (code + new password) + resend option.
 
 ## Plans, Scan Quotas & Notifications (this iteration)
-- **Plan field** on user (`free` / `premium` / `plus`). Legacy `premium` bool derived (`true` iff plan is premium or plus).
+- **Plan field** on user (`free` / `premium` / `plus`). **Derived** from verified `subscriptions` — never client-set. Legacy `premium` bool derived (`true` iff plan is premium or plus).
 - **Scan-limit enforcement** – server-side via `scan_logs` collection with 24h rolling window per user. Free = 4, Premium = 20, Plus = unlimited (fair-use cap 60). Failed/invalid scans do NOT count. `GET /api/scan-quota` returns `{plan, limit, used, remaining, fair_use_limit, blocked, reset_at}`. Scan endpoint returns HTTP 429 with structured detail when blocked.
 - **Plus-only gate** on `/api/ai/recommend` and `/api/ai/recommend/refine` (HTTP 402 `plus_required` for free/premium).
-- **Plan setter** `POST /api/auth/plan {plan}` (stub; real Apple IAP + Google Play Billing at native build). Legacy `/auth/premium-toggle` now cycles free → premium → plus → free.
-- **Paywall** rebuilt with 3 tier cards: Free €0, Premium €1.99/mo, Plus €4.99/mo (highlighted).
-- **Profile** shows current plan badge, live 24h scan-quota card, and a **Daily Reminders** switch that appears only for Plus users. Enabling schedules 2 local daily reminders (11:00 lunch nudge, 19:00 evening remaining-calories) via `expo-notifications`. Requests OS permission on enable; safe no-op on web preview.
-- **Multilingual login tagline** – new i18n key `loginTagline` in EN/AR/DE/ES/FR ("C1 is with you every step to your goal" / "C1 معك لتصل إلى هدفك" / German / Spanish / French translations).
-- **Scan FAB** moved to bottom-left, slightly higher (left:20, bottom:124).
+- ~~`POST /api/auth/plan {plan}`~~ / ~~`/auth/premium-toggle`~~ — **REMOVED in Phase 1**. Both return HTTP 410 Gone. Plan changes only via verified IAP receipts (Phase 2/3).
+- **Paywall** rebuilt with 3 tier cards: Free $0, Premium $1.99/mo, Plus $4.99/mo (highlighted). Prices are preview only — actual charge is the store's localized price.
+- **Profile** shows current plan badge, live 24h scan-quota card, and a **Daily Reminders** switch that appears only for Plus users.
+- **Multilingual login tagline** – i18n key `loginTagline` in EN/AR/DE/ES/FR.
+- **Scan FAB** at bottom-left (left:20, bottom:124).
+
+## Phase 1 – IAP foundation (this iteration)
+- New `/app/backend/iap/` package with skeletons: `common.py` (product map, models, scan-limit tiers), `effective_plan.py` (derives plan from `subscriptions`), `apple.py` and `google.py` (NotImplementedError skeletons — real integration in Phase 2/3), `routes.py` (all IAP routes return 501 in Phase 1).
+- New collections: `subscriptions` and `iap_events` with partial-unique indexes on Apple `original_transaction_id` and Google `purchase_token` to prevent transaction reuse.
+- New endpoint `GET /api/entitlement` — canonical derived entitlement snapshot with expiry / grace / auto-renew / manage_url.
+- New stub endpoints (501): `POST /api/iap/apple/verify`, `POST /api/iap/google/verify`, `POST /api/iap/restore`, `POST /api/iap/apple/webhook`, `POST /api/iap/google/webhook`.
+- Migration `001_reset_dev_plans` — resets every user's cached plan to `free` since no verified store subscriptions exist yet.
 
 ## Testing accounts
 See `/app/memory/test_credentials.md`.

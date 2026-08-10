@@ -3,7 +3,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '@/src/api';
 import { useAuth } from '@/src/auth';
@@ -70,12 +70,13 @@ export default function Paywall() {
 
   const activate = async () => {
     setBusy(true);
-    try {
-      // MOCKED: real Apple/Google IAP wires in native build via Emergent publish flow.
-      await api.setPlan(selected);
-      await refresh();
-      router.back();
-    } catch {}
+    // Phase 1: mock plan-set endpoint removed. Real Apple StoreKit + Google Play Billing
+    // integration lands in Phase 2/4. Show a placeholder message.
+    Alert.alert(
+      'Coming soon',
+      'Real in-app purchases will be enabled in the next release. In the current preview, plan changes require a verified store purchase.',
+      [{ text: 'OK', onPress: () => router.back() }],
+    );
     setBusy(false);
   };
 
@@ -106,6 +107,9 @@ export default function Paywall() {
           </View>
           <Text style={s.title}>Choose your{'\n'}C1 plan</Text>
           <Text style={s.sub}>AI-powered nutrition coaching. Cancel anytime.</Text>
+          <Text style={s.previewNote}>
+            Preview prices — actual charge will be the store's localized price at purchase.
+          </Text>
 
           <View style={{ gap: 12 }}>
             {PLANS.map((p) => {
@@ -202,6 +206,13 @@ const s = StyleSheet.create({
   badgeText: { color: tokens.onBrand, fontSize: 11, fontWeight: '900', letterSpacing: 1 },
   title: { color: tokens.text, fontSize: 32, fontWeight: '900', letterSpacing: -1, marginTop: 4 },
   sub: { color: tokens.textDim, fontSize: 14, marginBottom: 12 },
+  previewNote: {
+    color: tokens.textMute,
+    fontSize: 11,
+    marginTop: -8,
+    marginBottom: 8,
+    fontStyle: 'italic',
+  },
   plan: {
     padding: tokens.lg,
     borderRadius: tokens.rLg,

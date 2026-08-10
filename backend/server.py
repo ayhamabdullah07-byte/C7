@@ -36,6 +36,14 @@ from emergentintegrations.llm.chat import (
     UserMessage,
 )
 
+from iap.common import PLUS_FAIR_USE_LIMIT, SCAN_LIMITS
+from iap.effective_plan import (
+    effective_plan,
+    entitlement_snapshot,
+    recompute_and_cache_plan,
+)
+from iap.routes import router as iap_router
+
 # ---------------------------------------------------------------------------
 # Setup
 # ---------------------------------------------------------------------------
@@ -76,12 +84,7 @@ Goal = Literal["lose", "maintain", "gain"]
 MealType = Literal["breakfast", "lunch", "dinner", "snack"]
 Plan = Literal["free", "premium", "plus"]
 
-SCAN_LIMITS: dict[str, Optional[int]] = {
-    "free": 4,
-    "premium": 20,
-    "plus": None,  # unlimited, still fair-use limited below
-}
-PLUS_FAIR_USE_LIMIT = 60  # scans / 24h hard cap even for plus (abuse guard)
+# SCAN_LIMITS and PLUS_FAIR_USE_LIMIT are imported from iap.common
 
 ACTIVITY_MULT = {
     "sedentary": 1.2,
@@ -284,13 +287,11 @@ def _calc_targets(u: dict) -> Optional[Targets]:
     )
 
 
-def _user_out(u: dict) -> UserOut:
+async def _user_out(u: dict) -> UserOut:
     u = {**u}
     u.pop("password_hash", None)
-    # Normalize plan and legacy premium bool
-    plan = u.get("plan")
-    if plan not in ("free", "premium", "plus"):
-        plan = "premium" if u.get("premium") else "free"
+    # Plan is *derived* from verified subscriptions — never trust the cached field.
+    plan = await effective_plan(db, u["id"])
     u["plan"] = plan
     u["premium"] = plan in ("premium", "plus")
     u["targets"] = _calc_targets(u)
@@ -334,6 +335,8 @@ async def register(inp: RegisterIn):
         "onboarded": False,
         "plan": "free",
         "premium": False,
+        "plan_recomputed_at": datetime.now(tz=timezone.utc),
+        "is_email_verified": False,
         "streak": 0,
         "best_streak": 0,
         "created_at": datetime.now(tz=timezone.utc),
@@ -366,7 +369,7 @@ async def login(inp: LoginIn):
 
 @api.get("/auth/me", response_model=UserOut)
 async def me(user=Depends(get_current_user)):
-    return _user_out(user)
+    return await _user_out(user)
 
 
 @api.patch("/auth/profile", response_model=UserOut)
@@ -382,38 +385,35 @@ async def update_profile(inp: ProfileIn, user=Depends(get_current_user)):
             update["onboarded"] = True
         await db.users.update_one({"id": user["id"]}, {"$set": update})
     fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
-    return _user_out(fresh)
+    return await _user_out(fresh)
 
 
-@api.post("/auth/premium-toggle", response_model=UserOut)
-async def premium_toggle(user=Depends(get_current_user)):
-    """Legacy stub: cycles free → premium → plus → free (used by demo toggle)."""
-    order = ["free", "premium", "plus"]
-    current = user.get("plan")
-    if current not in order:
-        current = "premium" if user.get("premium") else "free"
-    next_plan = order[(order.index(current) + 1) % 3]
-    await db.users.update_one(
-        {"id": user["id"]},
-        {"$set": {"plan": next_plan, "premium": next_plan in ("premium", "plus")}},
+@api.post("/auth/premium-toggle")
+async def premium_toggle_removed():
+    """[REMOVED in Phase 1] Mock plan toggle no longer available.
+
+    Use the IAP flow: /api/iap/apple/verify or /api/iap/google/verify.
+    """
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail={"error": "endpoint_removed", "migrated_to": "/api/iap/*/verify"},
     )
-    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
-    return _user_out(fresh)
 
 
 class PlanIn(BaseModel):
     plan: Plan
 
 
-@api.post("/auth/plan", response_model=UserOut)
-async def set_plan(inp: PlanIn, user=Depends(get_current_user)):
-    """Stubbed subscription setter — in production this is driven by verified IAP receipts."""
-    await db.users.update_one(
-        {"id": user["id"]},
-        {"$set": {"plan": inp.plan, "premium": inp.plan in ("premium", "plus")}},
+@api.post("/auth/plan")
+async def set_plan_removed(_: PlanIn):
+    """[REMOVED in Phase 1] Mock plan setter no longer available.
+
+    Use the IAP flow: /api/iap/apple/verify or /api/iap/google/verify.
+    """
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail={"error": "endpoint_removed", "migrated_to": "/api/iap/*/verify"},
     )
-    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
-    return _user_out(fresh)
 
 
 # ---------------------------------------------------------------------------
@@ -427,7 +427,8 @@ async def _scan_count_last_24h(user_id: str) -> int:
 
 
 async def _scan_quota_state(user: dict) -> dict:
-    plan = user.get("plan") or ("premium" if user.get("premium") else "free")
+    # Derived from verified subscriptions (source of truth), not from the cached user.plan field.
+    plan = await effective_plan(db, user["id"])
     used = await _scan_count_last_24h(user["id"])
     if plan == "plus":
         limit = None
@@ -1144,7 +1145,7 @@ async def _remaining_budgets(user: dict, log_date: str) -> dict:
 async def recommend(inp: RecommendIn, user=Depends(get_current_user)):
     if not EMERGENT_LLM_KEY:
         raise HTTPException(500, "AI key not configured")
-    if (user.get("plan") or ("premium" if user.get("premium") else "free")) != "plus":
+    if await effective_plan(db, user["id"]) != "plus":
         raise HTTPException(
             status_code=402,
             detail={"error": "plus_required", "message": "Meal recommendations are a C1 Plus feature."},
@@ -1229,7 +1230,7 @@ async def recommend(inp: RecommendIn, user=Depends(get_current_user)):
 async def recommend_refine(inp: RefineIn, user=Depends(get_current_user)):
     if not EMERGENT_LLM_KEY:
         raise HTTPException(500, "AI key not configured")
-    if (user.get("plan") or ("premium" if user.get("premium") else "free")) != "plus":
+    if await effective_plan(db, user["id"]) != "plus":
         raise HTTPException(
             status_code=402,
             detail={"error": "plus_required", "message": "Meal recommendations are a C1 Plus feature."},
@@ -1291,8 +1292,70 @@ async def recommend_refine(inp: RefineIn, user=Depends(get_current_user)):
 
 
 # ---------------------------------------------------------------------------
+# Entitlement (derived from verified subscriptions — never client-set)
+# ---------------------------------------------------------------------------
+@api.get("/entitlement")
+async def entitlement(user=Depends(get_current_user)):
+    snap = await entitlement_snapshot(db, user["id"])
+    return snap.model_dump(mode="json")
+
+
+# ---------------------------------------------------------------------------
+# Startup: ensure subscriptions + iap_events indexes exist
+# ---------------------------------------------------------------------------
+async def _ensure_iap_indexes():
+    # subscriptions
+    await db.subscriptions.create_index([("user_id", 1), ("expires_at", -1)])
+    await db.subscriptions.create_index(
+        [("platform", 1), ("original_transaction_id", 1)],
+        unique=True,
+        partialFilterExpression={"platform": "apple", "original_transaction_id": {"$type": "string"}},
+        name="apple_original_tx_uniq",
+    )
+    await db.subscriptions.create_index(
+        [("platform", 1), ("purchase_token", 1)],
+        unique=True,
+        partialFilterExpression={"platform": "google", "purchase_token": {"$type": "string"}},
+        name="google_purchase_token_uniq",
+    )
+    await db.subscriptions.create_index(
+        [("latest_transaction_id", 1)],
+        sparse=True,
+        name="latest_tx_sparse",
+    )
+    await db.subscriptions.create_index([("expires_at", 1), ("status", 1)], name="expiry_sweep")
+
+    # iap_events
+    await db.iap_events.create_index(
+        [("notification_uuid", 1)], unique=True, sparse=True, name="apple_notif_uuid_uniq"
+    )
+    await db.iap_events.create_index(
+        [("pubsub_message_id", 1)], unique=True, sparse=True, name="google_msg_id_uniq"
+    )
+    await db.iap_events.create_index([("raw_payload_hash", 1)], name="payload_hash_audit")
+    await db.iap_events.create_index(
+        [("platform", 1), ("notification_type", 1), ("received_at", -1)],
+        name="events_lookup",
+    )
+    await db.iap_events.create_index(
+        [("user_id", 1), ("received_at", -1)], sparse=True, name="events_by_user"
+    )
+
+
+@app.on_event("startup")
+async def _startup():
+    try:
+        await _ensure_iap_indexes()
+        logger.info("IAP indexes ensured")
+    except Exception as e:
+        logger.error("Failed to ensure IAP indexes: %s", e)
+
+
+# ---------------------------------------------------------------------------
 # Wire up
 # ---------------------------------------------------------------------------
+# IAP router requires JWT auth on every route (Phase 1: routes are 501 stubs).
+api.include_router(iap_router, dependencies=[Depends(get_current_user)])
 app.include_router(api)
 app.add_middleware(
     CORSMiddleware,

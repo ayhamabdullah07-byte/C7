@@ -43,6 +43,7 @@ from iap.effective_plan import (
     recompute_and_cache_plan,
 )
 from iap.routes import router as iap_router
+from deps import get_current_user  # shared dep — used by iap.routes as well
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -235,18 +236,7 @@ def _make_token(user_id: str) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
 
-async def get_current_user(authorization: Optional[str] = Header(default=None)) -> dict:
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing token")
-    token = authorization.split(" ", 1)[1].strip()
-    try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
-    except jwt.PyJWTError:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token")
-    user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
-    if not user:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
-    return user
+# get_current_user is imported from deps.py (line 46) — do not redefine here.
 
 
 def _calc_targets(u: dict) -> Optional[Targets]:
@@ -1624,6 +1614,8 @@ async def _ensure_iap_indexes():
 
 @app.on_event("startup")
 async def _startup():
+    # Expose db handle to router modules (used by iap/routes.py)
+    app.state.db = db
     try:
         await _ensure_iap_indexes()
         logger.info("IAP indexes ensured")

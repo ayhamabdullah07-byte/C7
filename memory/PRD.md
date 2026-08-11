@@ -83,3 +83,22 @@ See `/app/memory/test_credentials.md`.
 - **i18n** — new keys across EN/AR/DE/ES/FR for limit dialogs, watch-ad CTA, scan-count labels, plan names, reset-in-time.
 - **DB indexes** — new `rewarded_credits` collection with unique index on `transaction_id`, plus lookup indexes.
 
+## Turn C — Google Play Billing (real purchase flow)
+- **Frontend** — Installed `react-native-iap@16.2.4` + `react-native-nitro-modules` (peer dep). New module `src/google-billing.ts` (native) + `src/google-billing.web.ts` (Metro-safe web stub) exports `billingAvailable`, `initBilling`, `fetchSubscriptions`, `requestSubscriptionPurchase`, and `IAP_PRODUCTS`.
+- **Paywall** — `activate()` no longer shows "Coming soon"; it now (a) maps the selected plan to a `{sku, basePlanId}`, (b) checks `billingAvailable()` and — when the SDK isn't loaded (Expo Go, web, iOS) — shows a specific alert with the exact Play Console steps to configure, (c) calls `requestSubscriptionPurchase` which launches the Google Play sheet, (d) on success posts to `/api/iap/google/verify` and refreshes user auth.
+- **Backend** — `iap/google.py` now performs real `subscriptionsv2.get` calls against the Google Play Developer API with service-account OAuth (androidpublisher scope). Verifies package name + productId match, requires `subscriptionState ∈ {ACTIVE, IN_GRACE_PERIOD}`, extracts `expiryTime` from `lineItems[]`, upserts the `subscriptions` doc keyed on `purchase_token`, best-effort acknowledges the purchase, refreshes cached plan, and returns `{ok, plan, period, entitlement}`. Requires env `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` (JSON string or file path); when absent, the endpoint returns HTTP 503 `play_api_not_configured` with an actionable message.
+- **Auth refactor** — Extracted `get_current_user` to `/app/backend/deps.py` so `iap/routes.py` can depend on it without a circular import. `app.state.db` is set at startup.
+- **RTDN webhook** — `/iap/google/webhook` still returns 501; wiring lands in the next follow-up (Pub/Sub push, JWT verify, messageId dedupe, snapshot reconcile).
+
+### What the operator (user) must do BEFORE purchases can be tested
+1. **Google Play Console → Monetize → Subscriptions** — create these products in the app `com.ayhamabdullah.c1`:
+   - `c1_premium` — base plan id `monthly`, price €1.99 / month, auto-renewing
+   - `c1_plus` — two base plans: `monthly` (€4.99/mo) and `annual` (€54.99/yr), both auto-renewing
+   - Activate each base plan. Do NOT rename or reuse product IDs after creation.
+2. **Publish a build to Internal Testing track** with package `com.ayhamabdullah.c1` (the currently deployed AAB). Products are not purchasable until the app has at least one published track.
+3. **Google Cloud Console** — create a service account, enable the Google Play Android Developer API, download the JSON key. In Play Console → Users and permissions, invite the service-account email and grant the "View financial data, orders, and cancellation survey responses" + "Manage orders and subscriptions" permissions.
+4. **Backend env** — add `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON=<JSON string OR path to file>` to `/app/backend/.env` and restart the backend.
+5. **License testers** — Play Console → Settings → License testing → add tester Gmail accounts and opt them into the internal track. Testers can then purchase with test payment instruments.
+6. **(Later) RTDN** — enable Pub/Sub topic `play-rtdn`, grant `google-play-developer-notifications@system.gserviceaccount.com` Publisher, create a push subscription pointing at `/api/iap/google/webhook`.
+
+

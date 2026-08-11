@@ -121,6 +121,7 @@ export const api = {
     req('/iap/google/verify', {
       method: 'POST',
       body: JSON.stringify({ purchase_token, subscription_id, base_plan_id, product_id }),
+      timeoutMs: 30000,
     }),
   restore: (platform: 'apple' | 'google', entries: any[]) =>
     req('/iap/restore', { method: 'POST', body: JSON.stringify({ platform, entries }) }),

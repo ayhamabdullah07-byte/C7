@@ -3,10 +3,15 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { api } from '@/src/api';
 import { useAuth } from '@/src/auth';
+import {
+  billingAvailable,
+  IAP_PRODUCTS,
+  requestSubscriptionPurchase,
+  type IapKey,
+} from '@/src/google-billing';
 import { t } from '@/src/i18n';
 import { tokens } from '@/src/theme';
 
@@ -90,15 +95,68 @@ export default function Paywall() {
   const currentTier: 'free' | 'premium' | 'plus' = user?.plan || 'free';
 
   const activate = async () => {
+    const sel = PLANS.find((x) => x.key === selected);
+    if (!sel) return;
+    if (sel.tier === currentTier) {
+      // Nothing to buy — user is already on this plan family.
+      router.back();
+      return;
+    }
+
+    // Map paywall plan key → Google Play SKU + base plan
+    const iapKey: IapKey | null =
+      selected === 'premium'
+        ? 'premium'
+        : selected === 'plus_monthly'
+        ? 'plus_monthly'
+        : selected === 'plus_annual'
+        ? 'plus_annual'
+        : null;
+    if (!iapKey) return;
+    const { sku, basePlanId } = IAP_PRODUCTS[iapKey];
+
     setBusy(true);
-    // Phase 1: mock plan-set endpoint removed. Real Apple StoreKit + Google Play Billing
-    // integration lands in Phase 2/4. Show a placeholder message.
-    Alert.alert(
-      'Coming soon',
-      'Real in-app purchases will be enabled in the next release. In the current preview, plan changes require a verified store purchase.',
-      [{ text: 'OK', onPress: () => router.back() }],
-    );
-    setBusy(false);
+
+    // If the native module isn't loaded (Expo Go / web / iOS), tell the user
+    // exactly what is required — never silently no-op.
+    if (!billingAvailable()) {
+      setBusy(false);
+      Alert.alert(
+        'Purchase not available here',
+        'Google Play purchases can only run inside an Android production or internal-testing build (not Expo Go or the web preview).\n\n' +
+          'Next steps:\n' +
+          '  1. Publish this app to an internal-testing track on Google Play (package: com.ayhamabdullah.c1).\n' +
+          '  2. Create these subscription products in Play Console → Monetize → Subscriptions:\n' +
+          '        • c1_premium  →  base plan id: monthly  (€1.99 / month)\n' +
+          '        • c1_plus     →  base plan ids: monthly (€4.99/month), annual (€54.99/year)\n' +
+          '  3. Install the internal-testing build on a real device signed into a license-tester Google account.',
+        [{ text: 'OK' }],
+      );
+      return;
+    }
+
+    try {
+      const result = await requestSubscriptionPurchase(sku, basePlanId);
+      if (result.status === 'success') {
+        // Refresh the user so /auth/me + entitlement pick up the new plan.
+        await refresh();
+        Alert.alert(
+          '🎉 Subscription active',
+          `You're now on ${sel.title}. Your daily scan limits have been updated.`,
+          [{ text: 'Great', onPress: () => router.back() }],
+        );
+      } else if (result.status === 'user_cancelled') {
+        // no-op; user closed the sheet
+      } else if (result.status === 'unavailable') {
+        Alert.alert('Purchase not available', result.reason);
+      } else {
+        Alert.alert('Purchase failed', result.error || 'Please try again.');
+      }
+    } catch (e: any) {
+      Alert.alert('Purchase failed', e?.message || 'Please try again.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -186,18 +244,22 @@ export default function Paywall() {
         <View style={s.footer}>
           <Pressable
             testID="paywall-subscribe"
-            style={[s.cta, busy && { opacity: 0.5 }]}
+            style={[s.cta, busy && { opacity: 0.6 }]}
             disabled={busy}
             onPress={activate}
           >
-            <Text style={s.ctaText}>
-              {(() => {
-                const sel = PLANS.find((x) => x.key === selected);
-                if (!sel) return 'Choose plan';
-                if (sel.tier === currentTier) return `Keep ${sel.title}`;
-                return `Switch to ${sel.title}`;
-              })()}
-            </Text>
+            {busy ? (
+              <ActivityIndicator color={tokens.onBrand} />
+            ) : (
+              <Text style={s.ctaText}>
+                {(() => {
+                  const sel = PLANS.find((x) => x.key === selected);
+                  if (!sel) return 'Choose plan';
+                  if (sel.tier === currentTier) return `Keep ${sel.title}`;
+                  return `Subscribe to ${sel.title}`;
+                })()}
+              </Text>
+            )}
           </Pressable>
           <Text style={s.restore}>{t('restore')}</Text>
         </View>

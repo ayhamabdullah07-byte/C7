@@ -357,3 +357,84 @@ agent_communication:
 #     lands before production launch.
 #
 # No blocking issues. Ready for user acceptance testing.
+
+# ============================================================================
+# Turn C (main agent, iteration 9) — Real Google Play Billing purchase flow
+# ============================================================================
+# 
+# USER-REPORTED BUG:
+#   Paywall "Switch to Premium/Plus" button did nothing on tap.
+# 
+# ROOT CAUSE:
+#   /app/frontend/app/paywall.tsx `activate()` was a placeholder calling
+#   Alert.alert('Coming soon', ...). No IAP SDK was installed, no purchase
+#   flow was wired, no backend verify was implemented. The backend
+#   /api/iap/google/verify was still a 501 Phase-1 stub.
+# 
+# CHANGES:
+#   Frontend:
+#     - yarn expo install react-native-iap@16.2.4 + react-native-nitro-modules
+#     - NEW /app/frontend/src/google-billing.ts (native) — SDK wrapper with
+#         billingAvailable(), initBilling(), fetchSubscriptions(),
+#         requestSubscriptionPurchase(sku, basePlanId), IAP_PRODUCTS map.
+#     - NEW /app/frontend/src/google-billing.web.ts — Metro-safe web stub.
+#     - UPDATED paywall.tsx — activate() now:
+#         1. Maps selected plan → {sku, basePlanId}
+#         2. Checks billingAvailable() — Expo Go/web/iOS → alert with the
+#            exact Play Console setup steps + product IDs
+#         3. Launches native Google Play purchase sheet
+#         4. POSTs the returned token to /api/iap/google/verify
+#         5. Refreshes auth → alert "Subscription active"
+#         6. Handles user_cancelled, unavailable, failed cases distinctly
+#     - CTA label changed "Switch to X" → "Subscribe to X" (clearer intent)
+#     - CTA shows ActivityIndicator while busy.
+# 
+#   Backend:
+#     - REPLACED iap/google.py with real Play Developer API integration
+#       (google-auth service-account OAuth, subscriptionsv2.get + acknowledge).
+#       verify_and_normalize() returns a snapshot ready to upsert.
+#     - REPLACED iap/routes.py POST /iap/google/verify (was 501 stub) with a
+#       real handler that verifies via Google, upserts by purchase_token,
+#       audit-logs to iap_events, calls recompute_and_cache_plan(),
+#       returns {ok, plan, period, entitlement}.
+#     - Returns HTTP 503 `play_api_not_configured` with actionable message
+#       when GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is not set (dev default).
+#     - NEW /app/backend/deps.py — shared get_current_user dep, imported by
+#       both server.py and iap/routes.py (breaks circular import).
+#     - server.py: app.state.db set at startup so iap/routes can use it.
+#     - requirements.txt updated: google-auth 2.56.2, google-auth-httplib2 0.4.0,
+#       google-api-core 2.33.0, google-api-python-client 2.198.0.
+# 
+#   Tests:
+#     - test_iap_stub_routes.py: removed google/verify from the 501-stub
+#       parametrized list; added dedicated test_google_verify_requires_auth +
+#       test_google_verify_no_credentials_configured for the new endpoint.
+# 
+# VERIFICATION:
+#   - 92 backend tests pass (was 91, +1 net after adding google_verify tests).
+#   - Web preview: paywall renders 4 tiers, selecting Premium updates CTA to
+#     "Subscribe to Premium", tapping it calls the flow — Alert fires with the
+#     Play Console setup instructions (SDK unavailable on web is expected).
+#   - Direct curl of /api/iap/google/verify (no creds): 503 + clear
+#     play_api_not_configured message including "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON".
+# 
+# TEST-IN-PRODUCTION REQUIREMENTS:
+#   Real Google Play purchase flow CANNOT be exercised in Expo Go or web
+#   preview. Requires:
+#     1. Products created in Play Console (c1_premium/monthly, c1_plus/monthly,
+#        c1_plus/annual) — do NOT rename after creation.
+#     2. An APK/AAB built with com.ayhamabdullah.c1 uploaded to at least
+#        internal testing track.
+#     3. Google Cloud service account with androidpublisher scope + Play
+#        Console permissions.
+#     4. GOOGLE_PLAY_SERVICE_ACCOUNT_JSON set in backend/.env.
+#     5. License-tester Google account on a real Android device.
+#   Once (1)-(5) are done, the paywall Subscribe button will open the real
+#   Google purchase sheet and the backend will verify + upgrade the user's
+#   plan atomically.
+# 
+# REMAINING FOLLOW-UPS (deferred, not in Turn C):
+#   - RTDN Pub/Sub webhook (renewals, cancellations, grace, refunds)
+#   - Apple StoreKit 2 JWS verification (iap/apple.py)
+#   - Full ECDSA verification for AdMob SSV
+#   - Restore purchases endpoint

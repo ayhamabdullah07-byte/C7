@@ -15,7 +15,9 @@
         "NSCameraUsageDescription": "Scan your meals to track nutrition automatically.",
         "NSPhotoLibraryUsageDescription": "Pick meal photos from your gallery to log calories.",
         "SKAdNetworkItems": [
-          { "SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork" }
+          {
+            "SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork"
+          }
         ]
       }
     },
@@ -61,6 +63,15 @@
           "resizeMode": "contain",
           "backgroundColor": "#0A0A0C"
         }
+      ],
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-3656632924764645~6219258098",
+          "iosAppId": "ca-app-pub-3940256099942544~1458002511",
+          "userTrackingUsageDescription": "This identifier will be used to deliver personalized ads to you.",
+          "skAdNetworkItems": ["cstr6suwn9.skadnetwork"]
+        }
       ]
     ],
     "experiments": {
@@ -71,7 +82,9 @@
         "androidAppId": "ca-app-pub-3656632924764645~6219258098",
         "iosAppId": "PENDING_USER_TO_CREATE_IOS_ADMOB_APP",
         "rewardedUnitId": "ca-app-pub-3656632924764645/2694232041",
-        "interstitialUnitId": "ca-app-pub-365663292476645/7939533877"
+        "interstitialUnitId": "ca-app-pub-365663292476645/7939533877",
+        "iosRewardedTestUnitId": "ca-app-pub-3940256099942544/1712485313",
+        "iosInterstitialTestUnitId": "ca-app-pub-3940256099942544/4411468910"
       }
     }
   }

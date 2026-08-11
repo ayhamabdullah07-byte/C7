@@ -292,3 +292,68 @@ agent_communication:
 # No blocking issues found. Turn A ready to hand off to Turn B (frontend AdMob SDK).
 
       Do NOT test Turn B frontend AdMob SDK — that comes next.
+# ============================================================================
+# Turn B (main agent, iteration 8) — Frontend LimitDialog + AdMob SDK + Paywall
+# ============================================================================
+#
+# USER-REPORTED BUG (Turn A follow-up):
+#   Free user hits 3-scan limit → dialog appears but shows only a retry arrow;
+#   NO "Watch Ad" or "View Subscription Plans" buttons rendered.
+#
+# ROOT CAUSE:
+#   /app/frontend/app/scan.tsx caught the 429 as a plain error string and rendered
+#   the generic s.errorCard which contained ONLY a "Try again" retry button.
+#   The backend's detail (with `can_watch_ad`, `base_limit_reached`, plan, reset)
+#   was discarded. There was no LimitDialog component at all.
+#
+# CHANGES:
+#   1. yarn expo install react-native-google-mobile-ads@16.4.0 + plugin config
+#      in app.json (androidAppId=real, iosAppId=Google test until user creates one).
+#   2. NEW /app/frontend/src/ads.ts + ads.web.ts — SDK wrapper with graceful
+#      Expo Go / web fallback (adsAvailable(), showRewardedAd, showInterstitialAd).
+#      Prevents Metro from crashing on native-only components.
+#   3. NEW /app/frontend/src/limit-dialog.tsx — full-screen Modal with:
+#        • Plan-specific localized title + body (EN/AR/DE/ES/FR)
+#        • Reset countdown pill
+#        • VISIBLE "Watch Ad — earn 1 scan" (Pressable, testID limit-watch-ad)
+#        • VISIBLE "Upgrade for more" (Pressable, testID limit-view-plans, hidden for Plus)
+#        • Close ghost button
+#        • Preview-build hint when SDK unavailable
+#        • Handles: watching state, ad-failed error, dev SSV fallback
+#   4. REFACTORED scan.tsx — single Fragment return renders LimitDialog on top.
+#      429 detail populates LimitDialogState. onSubscribe → router.push('/paywall').
+#      onRewardGranted → auto-retry analyze(photoUri).
+#   5. UPDATED paywall.tsx — 4 tiers:
+#        Free — €0, features list updated (3+2 scans)
+#        Premium — €1.99/mo (20+3)
+#        Plus — €4.99/mo (MOST POPULAR, 99 scans, zero ads)
+#        Plus Annual — €54.99/year (BEST VALUE — save ~8%)
+#   6. api.rewardedToken + api.rewardedRedeemDev added in src/api.ts.
+#
+# VERIFICATION (web preview, real backend):
+#   • Seeded a fresh Free user with 3 base scans, attempted 4th scan via gallery.
+#   • Backend returned 429 base_limit_reached, can_watch_ad=true.
+#   • LimitDialog rendered with title "Daily scan limit reached", body
+#     "You've used all 3 free scans today. Watch a short ad to earn 1 more,
+#     or upgrade for higher limits.", countdown pill "Resets in 23h 55m",
+#     and 3 fully-clickable buttons (Watch Ad, Upgrade for more, Close).
+#   • Clicked Watch Ad → SDK reported unavailable → dev SSV fallback called
+#     /api/ai/rewarded/token + /api/ai/rewarded/redeem → credit granted →
+#     dialog closed → scan retried → AI returned "No food detected" (correct
+#     behavior for the 1x1 test JPEG).
+#   • Post-flow quota: base_used=3, rewarded_used=1, rewarded_remaining=1,
+#     rewarded_credits_available=0, can_watch_ad=true.
+#   • Clicked Upgrade for more → navigated to /paywall showing all 4 tiers
+#     with correct pricing (€0, €1.99/mo, €4.99/mo, €54.99/yr) and the
+#     current-user badge on Free.
+#
+# NATIVE-BUILD REQUIREMENTS (unchanged from Turn A note):
+#   • Real AdMob ad rendering requires a native/production build. In Expo Go
+#     and web preview the SDK returns { status: 'sdk_unavailable' } and the
+#     LimitDialog uses the dev SSV path so end-to-end flow remains testable.
+#   • iOS AdMob App ID still Google's test ID — swap when user creates their
+#     iOS AdMob app in the console.
+#   • ADMOB_SSV_ENFORCE stays false in dev; full ECDSA signature verification
+#     lands before production launch.
+#
+# No blocking issues. Ready for user acceptance testing.

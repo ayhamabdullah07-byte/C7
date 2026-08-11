@@ -127,6 +127,20 @@ export const api = {
   scanQuota: () => req('/scan-quota'),
   deleteAccount: () => req('/auth/account', { method: 'DELETE' }),
 
+  // AdMob rewarded flow
+  rewardedToken: () =>
+    req('/ai/rewarded/token', { method: 'POST', timeoutMs: 10000 }),
+  // For sandbox / dev builds where AdMob SDK isn't available (Expo Go),
+  // this can simulate a reward via the same SSV endpoint the AdMob servers hit.
+  // In production, AdMob's servers call this endpoint directly — the client never does.
+  rewardedRedeemDev: (transaction_id: string, custom_data: string) =>
+    req(
+      `/ai/rewarded/redeem?transaction_id=${encodeURIComponent(transaction_id)}&custom_data=${encodeURIComponent(
+        custom_data,
+      )}&signature=dev&key_id=dev&ad_network=admob&ad_unit=dev&reward_amount=1&reward_item=scan`,
+      { method: 'GET', timeoutMs: 10000 },
+    ),
+
   dashboard: (log_date?: string) =>
     req(`/dashboard${log_date ? `?log_date=${log_date}` : ''}`),
   listMeals: (log_date: string) => req(`/meals?log_date=${log_date}`),

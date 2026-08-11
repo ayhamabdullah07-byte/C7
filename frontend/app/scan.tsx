@@ -17,6 +17,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '@/src/api';
 import { t } from '@/src/i18n';
+import { LimitDialog, LimitDialogState } from '@/src/limit-dialog';
 import { tokens } from '@/src/theme';
 
 type Item = {
@@ -40,7 +41,9 @@ export default function Scan() {
   const router = useRouter();
   const [perm, requestPerm] = useCameraPermissions();
   const camRef = useRef<CameraView>(null);
-  const [photoB64, setPhotoB64] = useState<string | null>(null);
+  const [photoB64, _setPhotoB64] = useState<string | null>(null);
+  const setPhotoB64 = _setPhotoB64;
+  void photoB64;
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeStep, setAnalyzeStep] = useState<'optimizing' | 'uploading' | 'analyzing' | ''>('');
@@ -48,7 +51,37 @@ export default function Scan() {
   const [mealType, setMealType] = useState<MealType>('lunch');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [limit, setLimit] = useState<LimitDialogState>({
+    visible: false,
+    reason: 'unknown',
+    plan: 'free',
+    baseLimit: 3,
+    rewardedLimit: 2,
+    fairUseLimit: 5,
+    canWatchAd: false,
+    resetAt: null,
+  });
   const runIdRef = useRef(0);
+
+  const openLimitDialog = (detail: any) => {
+    // Backend returns HTTPException(429, detail={...}). The api layer surfaces this via e.detail.
+    const plan = (detail?.plan || 'free') as 'free' | 'premium' | 'plus';
+    setLimit({
+      visible: true,
+      reason:
+        detail?.error === 'base_limit_reached'
+          ? 'base_limit_reached'
+          : detail?.error === 'scan_limit_reached'
+          ? 'scan_limit_reached'
+          : 'unknown',
+      plan,
+      baseLimit: Number(detail?.base_limit ?? 3),
+      rewardedLimit: Number(detail?.rewarded_limit ?? 2),
+      fairUseLimit: Number(detail?.fair_use_limit ?? 5),
+      canWatchAd: Boolean(detail?.can_watch_ad),
+      resetAt: detail?.reset_at || null,
+    });
+  };
 
   // Resize/compress to keep the AI request small & fast. Cap the long edge at 1024px
   // and re-encode to JPEG at 0.55 quality. Base64 typically drops to ~80-150KB.
@@ -107,16 +140,25 @@ export default function Scan() {
       setItems(res.items || []);
     } catch (e: any) {
       if (runId !== runIdRef.current) return;
-      // Scan-limit hit
-      if (e?.status === 429 || e?.detail?.error === 'scan_limit_reached') {
-        setErr(
-          e?.detail?.message ||
-            "You've reached your daily scan limit. Upgrade for more scans.",
-        );
+      // Scan-limit hit — open the localized limit dialog with Watch Ad / Subscribe buttons.
+      if (
+        e?.status === 429 &&
+        (e?.detail?.error === 'base_limit_reached' ||
+          e?.detail?.error === 'scan_limit_reached')
+      ) {
+        openLimitDialog(e.detail);
+        setItems(null);
+        // reset preview so user can retry after unlock
+        setErr(null);
+      } else if (e?.status === 429) {
+        // Legacy 429 without detail — still open the dialog with best-guess defaults.
+        openLimitDialog({ plan: 'free', can_watch_ad: true });
+        setItems(null);
+        setErr(null);
       } else {
         setErr(e.message || 'AI failed');
+        setItems([]);
       }
-      setItems([]);
     } finally {
       if (runId === runIdRef.current) {
         setAnalyzing(false);
@@ -170,8 +212,29 @@ export default function Scan() {
   const totalC = items?.reduce((a, i) => a + (i.carbs_g || 0), 0) || 0;
   const totalF = items?.reduce((a, i) => a + (i.fat_g || 0), 0) || 0;
 
-  // Result / progress view (shown as soon as a photo is chosen)
-  if (photoUri && (analyzing || items !== null)) {
+  // Handlers for the limit dialog
+  const closeLimitDialog = () => {
+    setLimit((l) => ({ ...l, visible: false }));
+    // If we were showing a preview but the scan was rejected, go back to camera
+    // so the user isn't stranded on an empty preview.
+    if (photoUri && !items) {
+      runIdRef.current++;
+      setPhotoUri(null);
+      setPhotoB64(null);
+    }
+  };
+  const handleSubscribe = () => {
+    setLimit((l) => ({ ...l, visible: false }));
+    router.push('/paywall');
+  };
+  const handleRewardGranted = () => {
+    setLimit((l) => ({ ...l, visible: false }));
+    // Retry the scan now that a rewarded credit was granted server-side.
+    if (photoUri) analyze(photoUri);
+  };
+
+  // ---------- render helpers so we can wrap everything with the LimitDialog ----------
+  const renderPreview = () => {
     const stepText =
       analyzeStep === 'optimizing'
         ? 'Optimizing photo…'
@@ -323,10 +386,10 @@ export default function Scan() {
         )}
       </SafeAreaView>
     );
-  }
+  };
 
   // Camera view
-  return (
+  const renderCamera = () => (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
       <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
         {!perm ? (
@@ -380,6 +443,20 @@ export default function Scan() {
         )}
       </SafeAreaView>
     </View>
+  );
+
+  const showPreview = photoUri && (analyzing || items !== null);
+
+  return (
+    <>
+      {showPreview ? renderPreview() : renderCamera()}
+      <LimitDialog
+        {...limit}
+        onClose={closeLimitDialog}
+        onSubscribe={handleSubscribe}
+        onRewardGranted={handleRewardGranted}
+      />
+    </>
   );
 }
 

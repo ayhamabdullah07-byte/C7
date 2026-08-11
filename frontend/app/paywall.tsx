@@ -10,23 +10,27 @@ import { useAuth } from '@/src/auth';
 import { t } from '@/src/i18n';
 import { tokens } from '@/src/theme';
 
-type PlanKey = 'free' | 'premium' | 'plus';
+type PlanKey = 'free' | 'premium' | 'plus_monthly' | 'plus_annual';
 
 const PLANS: Array<{
   key: PlanKey;
+  tier: 'free' | 'premium' | 'plus';
   title: string;
   price: string;
   priceSub: string;
   highlight?: boolean;
+  badge?: string;
   features: string[];
 }> = [
   {
     key: 'free',
+    tier: 'free',
     title: 'Free',
     price: '€0',
     priceSub: 'forever',
     features: [
-      '4 AI meal scans per 24h',
+      '3 AI meal scans / day',
+      '+2 extra scans by watching a short ad',
       'Calorie & macro calculator',
       'Basic food diary',
       'AI Nutrition chat (limited)',
@@ -34,28 +38,45 @@ const PLANS: Array<{
   },
   {
     key: 'premium',
+    tier: 'premium',
     title: 'Premium',
     price: '€1.99',
     priceSub: '/month',
     features: [
-      '20 AI meal scans per 24h',
+      '20 AI meal scans / day',
+      '+3 extra scans by watching an ad',
       'Full food diary + water & weight tracking',
-      'AI Nutrition chat',
-      'Ad-free experience',
+      'Full AI Nutrition chat',
+      'Reduced ads',
     ],
   },
   {
-    key: 'plus',
+    key: 'plus_monthly',
+    tier: 'plus',
     title: 'Plus',
     price: '€4.99',
     priceSub: '/month',
     highlight: true,
+    badge: 'MOST POPULAR',
     features: [
-      'Unlimited AI meal scans (fair-use)',
+      '99 AI meal scans / day (fair-use)',
+      'Zero ads — clean experience',
       'Personalized meal recommendations',
       '"Complete My Day" AI planner',
-      'Daily nutrition reminders',
       'Everything in Premium',
+    ],
+  },
+  {
+    key: 'plus_annual',
+    tier: 'plus',
+    title: 'Plus (Annual)',
+    price: '€54.99',
+    priceSub: '/year',
+    badge: 'BEST VALUE — save ~8%',
+    features: [
+      'Everything in Plus Monthly',
+      'Just €4.58 / month',
+      'One yearly payment — no monthly surprise',
     ],
   },
 ];
@@ -63,10 +84,10 @@ const PLANS: Array<{
 export default function Paywall() {
   const router = useRouter();
   const { user, refresh } = useAuth();
-  const [selected, setSelected] = useState<PlanKey>('plus');
+  const [selected, setSelected] = useState<PlanKey>('plus_monthly');
   const [busy, setBusy] = useState(false);
 
-  const currentPlan: PlanKey = user?.plan || 'free';
+  const currentTier: 'free' | 'premium' | 'plus' = user?.plan || 'free';
 
   const activate = async () => {
     setBusy(true);
@@ -114,7 +135,7 @@ export default function Paywall() {
           <View style={{ gap: 12 }}>
             {PLANS.map((p) => {
               const isSelected = selected === p.key;
-              const isCurrent = currentPlan === p.key;
+              const isCurrent = currentTier === p.tier;
               return (
                 <Pressable
                   key={p.key}
@@ -126,9 +147,9 @@ export default function Paywall() {
                     p.highlight && s.planHighlight,
                   ]}
                 >
-                  {p.highlight && (
+                  {p.badge && (
                     <View style={s.mostPopular}>
-                      <Text style={s.mostPopularText}>MOST POPULAR</Text>
+                      <Text style={s.mostPopularText}>{p.badge}</Text>
                     </View>
                   )}
                   <View style={s.planHeaderRow}>
@@ -170,9 +191,12 @@ export default function Paywall() {
             onPress={activate}
           >
             <Text style={s.ctaText}>
-              {selected === currentPlan
-                ? `Keep ${PLANS.find((x) => x.key === selected)?.title}`
-                : `Switch to ${PLANS.find((x) => x.key === selected)?.title}`}
+              {(() => {
+                const sel = PLANS.find((x) => x.key === selected);
+                if (!sel) return 'Choose plan';
+                if (sel.tier === currentTier) return `Keep ${sel.title}`;
+                return `Switch to ${sel.title}`;
+              })()}
             </Text>
           </Pressable>
           <Text style={s.restore}>{t('restore')}</Text>

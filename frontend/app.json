@@ -9,6 +9,8 @@
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
+  "bundleIdentifier": "com.ayhamabdullah.c1"
+}
       "supportsTablet": true,
       "bundleIdentifier": "com.emergent.cmealscanner.kx1egr",
       "infoPlist": {
@@ -16,7 +18,9 @@
         "NSPhotoLibraryUsageDescription": "Pick meal photos from your gallery to log calories."
       }
     },
-    "android": {
+     "android": {
+  "package": "com.ayhamabdullah.c1"
+},
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#0A0A0C"

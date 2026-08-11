@@ -1,12 +1,13 @@
 """Shared types, product mapping, and idempotency helpers for the IAP subsystem.
 
-The product identifiers here use *placeholder* bundle IDs. The real IDs will be
-substituted in Phase 2 when the App Store / Play Console products are created.
+Product identifiers use the real bundle ID `com.ayhamabdullah.c1`. Actual App Store
+Connect / Play Console product IDs will be created by the user during Phase 2/3.
 
-Base pricing (USD, informational only — never displayed as the actual purchase price):
-  Premium Monthly   $1.99
-  Premium Quarterly $4.99  (3 months)
-  Plus    Monthly   $4.99
+Base pricing (USD, informational only — never displayed as the actual purchase price;
+the store returns real localized prices at runtime):
+  Premium Monthly   $1.99 / month
+  Plus    Monthly   $4.99 / month
+  Plus    Annual    $34.99 / year
 """
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ from pydantic import BaseModel, Field
 # ---------------------------------------------------------------------------
 Plan = Literal["free", "premium", "plus"]
 Platform = Literal["apple", "google"]
-Period = Literal["P1M", "P3M"]
+Period = Literal["P1M", "P1Y"]
 
 RANK: dict[str, int] = {"free": 0, "premium": 1, "plus": 2}
 
@@ -32,25 +33,23 @@ def rank_of(plan: str) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Product mapping (placeholder identifiers — final IDs set in Phase 2/3)
+# Product mapping — real bundle IDs (com.ayhamabdullah.c1)
 # ---------------------------------------------------------------------------
-# The bundle identifier is intentionally read from env so no rename is needed
-# until the user provides the final production identifier.
-_APPLE_BUNDLE = os.environ.get("APPLE_BUNDLE_ID", "com.yourbrand.c1")
-_GOOGLE_PACKAGE = os.environ.get("GOOGLE_PACKAGE_NAME", "com.yourbrand.c1")
+_APPLE_BUNDLE = os.environ.get("APPLE_BUNDLE_ID", "com.ayhamabdullah.c1")
+_GOOGLE_PACKAGE = os.environ.get("GOOGLE_PACKAGE_NAME", "com.ayhamabdullah.c1")
 
 
 APPLE_PRODUCTS: dict[str, tuple[Plan, Period]] = {
-    f"{_APPLE_BUNDLE}.premium.monthly":   ("premium", "P1M"),
-    f"{_APPLE_BUNDLE}.premium.quarterly": ("premium", "P3M"),
-    f"{_APPLE_BUNDLE}.plus.monthly":      ("plus",    "P1M"),
+    f"{_APPLE_BUNDLE}.premium.monthly": ("premium", "P1M"),
+    f"{_APPLE_BUNDLE}.plus.monthly":    ("plus",    "P1M"),
+    f"{_APPLE_BUNDLE}.plus.annual":     ("plus",    "P1Y"),
 }
 
 # Google keys are (subscription_id, base_plan_id) tuples.
 GOOGLE_PRODUCTS: dict[tuple[str, str], tuple[Plan, Period]] = {
-    ("c1-premium", "monthly"):   ("premium", "P1M"),
-    ("c1-premium", "quarterly"): ("premium", "P3M"),
-    ("c1-plus",    "monthly"):   ("plus",    "P1M"),
+    ("c1_premium", "monthly"): ("premium", "P1M"),
+    ("c1_plus",    "monthly"): ("plus",    "P1M"),
+    ("c1_plus",    "annual"):  ("plus",    "P1Y"),
 }
 
 
@@ -160,11 +159,27 @@ class EntitlementOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Scan-limit tiers (moved from server.py to keep plan config centralized)
+# Scan-limit tiers — per-plan Base + Rewarded splits (24h rolling window)
 # ---------------------------------------------------------------------------
-SCAN_LIMITS: dict[str, Optional[int]] = {
-    "free": 4,
-    "premium": 20,
-    "plus": None,  # unlimited, still fair-use capped below
+#
+#   Free:    3 base + up to 2 rewarded = 5 max/day
+#   Premium: 20 base + up to 3 rewarded = 23 max/day
+#   Plus:    99 total (no ads, no rewarded flow); fair-use cap
+#
+# `base` = free daily allowance without watching any ad
+# `rewarded` = max additional scans a user may unlock by watching Rewarded Ads
+# `total_cap` = hard fair-use cap (Plus only; None means base+rewarded gate)
+#
+SCAN_LIMITS: dict[str, dict[str, Optional[int]]] = {
+    "free":    {"base": 3,  "rewarded": 2, "total_cap": None},
+    "premium": {"base": 20, "rewarded": 3, "total_cap": None},
+    "plus":    {"base": 99, "rewarded": 0, "total_cap": 99},
 }
-PLUS_FAIR_USE_LIMIT = 60  # scans / 24h hard cap even for plus
+
+# Backward-compat top-level fair-use cap for Plus (also referenced by legacy code).
+PLUS_FAIR_USE_LIMIT: int = 99
+
+
+def plan_limits(plan: str) -> dict[str, Optional[int]]:
+    """Return the SCAN_LIMITS row for a plan, defaulting to free's config for unknown plans."""
+    return SCAN_LIMITS.get(plan, SCAN_LIMITS["free"])

@@ -87,8 +87,8 @@ def grant_plan_via_subscription(user_id: str, tier: str) -> dict:
         return {"tier": "free"}
 
     product_map = {
-        "premium": ("com.yourbrand.c1.premium.monthly", "P1M"),
-        "plus": ("com.yourbrand.c1.plus.monthly", "P1M"),
+        "premium": ("com.ayhamabdullah.c1.premium.monthly", "P1M"),
+        "plus": ("com.ayhamabdullah.c1.plus.monthly", "P1M"),
     }
     product_id, period = product_map[tier]
     doc = {

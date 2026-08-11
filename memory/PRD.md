@@ -63,3 +63,23 @@ C1 is a premium, AI-powered mobile nutrition, calorie tracking, and weight-manag
 
 ## Testing accounts
 See `/app/memory/test_credentials.md`.
+
+## Turn A — AdMob SSV & Granular Scan Limits (this iteration)
+- **Bundle ID unified** — iOS + Android → `com.ayhamabdullah.c1` (user-owned).
+- **Product map** (real IDs, USD base prices — store returns localized prices):
+  - Apple: `com.ayhamabdullah.c1.premium.monthly` ($1.99/mo),
+           `com.ayhamabdullah.c1.plus.monthly` ($4.99/mo),
+           `com.ayhamabdullah.c1.plus.annual` ($34.99/yr)
+  - Google: `c1_premium/monthly`, `c1_plus/monthly`, `c1_plus/annual`
+- **Scan limits** — split into BASE + REWARDED buckets (24h rolling):
+  - Free:    3 base + 2 rewarded  = 5 max/day (ads unlock rewarded)
+  - Premium: 20 base + 3 rewarded = 23 max/day
+  - Plus:    99 total (no ads), hard fair-use cap
+- **`GET /api/scan-quota`** returns full breakdown: `base_limit`, `base_used`, `base_remaining`, `rewarded_limit`, `rewarded_used`, `rewarded_remaining`, `rewarded_credits_available`, `total_used`, `total_remaining`, `can_watch_ad`, `fair_use_limit`, `blocked`, `reset_at` (legacy `limit`, `used`, `remaining` kept for compat).
+- **`POST /api/ai/scan-meal`** — consumes BASE first. When base exhausted, consumes one unconsumed rewarded credit via atomic `find_one_and_update`. Returns `429 base_limit_reached` if base gone and no credits (client watches ad); `429 scan_limit_reached` if fully capped. Refunds credit on invalid image / AI failure.
+- **`POST /api/ai/rewarded/token`** — JWT-auth. Issues a short-lived (`typ=c1_rw`, 20-min) signed token; client sets it as `customData` on the AdMob RewardedAd.
+- **`GET/POST /api/ai/rewarded/redeem`** — Public AdMob SSV callback. Decodes `custom_data`, enforces per-plan rewarded cap, inserts idempotent credit keyed on `transaction_id`. Signature verification bypassed unless `ADMOB_SSV_ENFORCE=true` (full ECDSA in Turn B).
+- **AdMob IDs** stored in `app.json extra.admob` — Android App ID `ca-app-pub-3656632924764645~6219258098`, Rewarded `ca-app-pub-3656632924764645/2694232041`, Interstitial `ca-app-pub-365663292476645/7939533877` (used exactly as provided by user). iOS AdMob App ID **PENDING** until user creates iOS app in AdMob console.
+- **i18n** — new keys across EN/AR/DE/ES/FR for limit dialogs, watch-ad CTA, scan-count labels, plan names, reset-in-time.
+- **DB indexes** — new `rewarded_credits` collection with unique index on `transaction_id`, plus lookup indexes.
+

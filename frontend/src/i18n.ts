@@ -129,6 +129,23 @@ const en = {
   quickAsk4: 'Faster to prepare',
   updated: 'Updated',
   goalHit: 'On track for today',
+  // scan limits & rewarded ads
+  scanLimitTitle: 'Daily scan limit reached',
+  scanLimitFreeMsg: 'You\u2019ve used all {base} free scans today. Watch a short ad to earn 1 more, or upgrade for higher limits.',
+  scanLimitPremiumMsg: 'You\u2019ve used all {base} scans today. Watch a short ad to earn 1 more, or upgrade to Plus for 99/day.',
+  scanLimitPlusMsg: 'You\u2019ve reached the {total}/day fair-use cap. It resets in 24h.',
+  scanCapAllReachedMsg: 'You\u2019ve reached today\u2019s maximum of {total} scans. It resets in 24h.',
+  watchAdEarnScan: 'Watch ad — earn 1 scan',
+  watchingAd: 'Loading ad\u2026',
+  adFailed: 'Ad failed to load. Try again in a moment.',
+  scansToday: 'Scans today',
+  baseScansLabel: 'Free scans',
+  rewardedScansLabel: 'Ad-unlocked',
+  upgradeForMore: 'Upgrade for more',
+  resetsIn: 'Resets in {time}',
+  planFree: 'Free',
+  planPremium: 'Premium',
+  planPlus: 'Plus',
 };
 
 type Dict = typeof en;
@@ -217,6 +234,22 @@ const ar: Dict = {
   aboutC1: 'حول C1',
   medicalDisclaimer: 'C1 يوفر معلومات تغذية عامة ولا يغني عن استشارة طبية مختصة.',
   errors: 'حدث خطأ ما',
+  scanLimitTitle: 'انتهت مسحات اليوم',
+  scanLimitFreeMsg: 'استخدمت جميع مسحاتك المجانية اليوم ({base}). شاهد إعلاناً قصيراً لكسب مسحة إضافية، أو ترقّى لخطة أعلى.',
+  scanLimitPremiumMsg: 'استخدمت جميع مسحاتك اليوم ({base}). شاهد إعلاناً لكسب مسحة إضافية، أو ترقّى إلى بلَس (٩٩ يومياً).',
+  scanLimitPlusMsg: 'وصلت إلى الحد العادل ({total} يومياً). سيُعاد الضبط خلال ٢٤ ساعة.',
+  scanCapAllReachedMsg: 'وصلت إلى الحد الأقصى اليوم ({total} مسحة). سيُعاد الضبط خلال ٢٤ ساعة.',
+  watchAdEarnScan: 'شاهد إعلاناً — احصل على مسحة',
+  watchingAd: 'جاري تحميل الإعلان\u2026',
+  adFailed: 'فشل تحميل الإعلان. حاول لاحقاً.',
+  scansToday: 'مسحات اليوم',
+  baseScansLabel: 'المجانية',
+  rewardedScansLabel: 'المُكتسبة بالإعلان',
+  upgradeForMore: 'رقّي لمزيد',
+  resetsIn: 'يُعاد الضبط خلال {time}',
+  planFree: 'مجاني',
+  planPremium: 'بريميوم',
+  planPlus: 'بلَس',
 };
 
 const de: Dict = {
@@ -292,6 +325,22 @@ const de: Dict = {
   standard: '€1,99 / Monat',
   medicalDisclaimer:
     'C1 bietet allgemeine Ernährungsinfos und ersetzt keine ärztliche Beratung.',
+  scanLimitTitle: 'Tägliches Scan-Limit erreicht',
+  scanLimitFreeMsg: 'Du hast heute alle {base} kostenlosen Scans genutzt. Schau ein kurzes Werbevideo für 1 weiteren Scan — oder upgrade.',
+  scanLimitPremiumMsg: 'Du hast heute alle {base} Scans genutzt. Schau ein Werbevideo für 1 weiteren Scan, oder wechsle zu Plus (99/Tag).',
+  scanLimitPlusMsg: 'Fair-Use-Grenze ({total}/Tag) erreicht. Reset in 24 Std.',
+  scanCapAllReachedMsg: 'Du hast das heutige Maximum von {total} Scans erreicht. Reset in 24 Std.',
+  watchAdEarnScan: 'Werbung ansehen — 1 Scan freischalten',
+  watchingAd: 'Werbung wird geladen\u2026',
+  adFailed: 'Werbung konnte nicht geladen werden.',
+  scansToday: 'Scans heute',
+  baseScansLabel: 'Frei',
+  rewardedScansLabel: 'Per Werbung',
+  upgradeForMore: 'Für mehr upgraden',
+  resetsIn: 'Reset in {time}',
+  planFree: 'Free',
+  planPremium: 'Premium',
+  planPlus: 'Plus',
 };
 
 const es: Dict = {
@@ -359,6 +408,22 @@ const es: Dict = {
   standard: '€1,99 / mes',
   medicalDisclaimer:
     'C1 ofrece información general de nutrición y no sustituye consejo médico profesional.',
+  scanLimitTitle: 'Límite diario de escaneos alcanzado',
+  scanLimitFreeMsg: 'Has usado tus {base} escaneos gratis de hoy. Mira un anuncio corto para ganar 1 más, o mejora tu plan.',
+  scanLimitPremiumMsg: 'Has usado tus {base} escaneos de hoy. Mira un anuncio para ganar 1 más, o pasa a Plus (99/día).',
+  scanLimitPlusMsg: 'Has alcanzado el tope de uso justo ({total}/día). Se reinicia en 24 h.',
+  scanCapAllReachedMsg: 'Has alcanzado el máximo diario de {total} escaneos. Se reinicia en 24 h.',
+  watchAdEarnScan: 'Ver anuncio — gana 1 escaneo',
+  watchingAd: 'Cargando anuncio\u2026',
+  adFailed: 'No se pudo cargar el anuncio.',
+  scansToday: 'Escaneos hoy',
+  baseScansLabel: 'Gratis',
+  rewardedScansLabel: 'Por anuncio',
+  upgradeForMore: 'Mejora para más',
+  resetsIn: 'Se reinicia en {time}',
+  planFree: 'Free',
+  planPremium: 'Premium',
+  planPlus: 'Plus',
 };
 
 const fr: Dict = {
@@ -426,6 +491,22 @@ const fr: Dict = {
   standard: '1,99 € / mois',
   medicalDisclaimer:
     "C1 fournit des informations générales, pas un avis médical professionnel.",
+  scanLimitTitle: 'Limite quotidienne de scans atteinte',
+  scanLimitFreeMsg: 'Vous avez utilisé vos {base} scans gratuits d\u2019aujourd\u2019hui. Regardez une courte pub pour en gagner 1 de plus, ou passez à un plan supérieur.',
+  scanLimitPremiumMsg: 'Vous avez utilisé vos {base} scans d\u2019aujourd\u2019hui. Regardez une pub pour 1 scan de plus, ou passez à Plus (99/jour).',
+  scanLimitPlusMsg: 'Vous avez atteint la limite d\u2019usage équitable ({total}/jour). Réinit. dans 24 h.',
+  scanCapAllReachedMsg: 'Vous avez atteint le maximum quotidien de {total} scans. Réinit. dans 24 h.',
+  watchAdEarnScan: 'Regarder une pub — 1 scan gagné',
+  watchingAd: 'Chargement de la pub\u2026',
+  adFailed: "Impossible de charger la pub.",
+  scansToday: "Scans aujourd\u2019hui",
+  baseScansLabel: 'Gratuits',
+  rewardedScansLabel: 'Débloqués par pub',
+  upgradeForMore: 'Passer à un plan supérieur',
+  resetsIn: 'Réinit. dans {time}',
+  planFree: 'Free',
+  planPremium: 'Premium',
+  planPlus: 'Plus',
 };
 
 const DICTS: Record<string, Dict> = { en, ar, de, es, fr };

@@ -10,10 +10,13 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.cmealscanner.kx1egr",
+      "bundleIdentifier": "com.ayhamabdullah.c1",
       "infoPlist": {
         "NSCameraUsageDescription": "Scan your meals to track nutrition automatically.",
-        "NSPhotoLibraryUsageDescription": "Pick meal photos from your gallery to log calories."
+        "NSPhotoLibraryUsageDescription": "Pick meal photos from your gallery to log calories.",
+        "SKAdNetworkItems": [
+          { "SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork" }
+        ]
       }
     },
     "android": {
@@ -22,8 +25,12 @@
         "backgroundColor": "#0A0A0C"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.emergent.cmealscanner.kx1egr",
-      "permissions": ["android.permission.CAMERA", "android.permission.READ_MEDIA_IMAGES"]
+      "package": "com.ayhamabdullah.c1",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES",
+        "com.google.android.gms.permission.AD_ID"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -58,6 +65,14 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "admob": {
+        "androidAppId": "ca-app-pub-3656632924764645~6219258098",
+        "iosAppId": "PENDING_USER_TO_CREATE_IOS_ADMOB_APP",
+        "rewardedUnitId": "ca-app-pub-3656632924764645/2694232041",
+        "interstitialUnitId": "ca-app-pub-365663292476645/7939533877"
+      }
     }
   }
 }

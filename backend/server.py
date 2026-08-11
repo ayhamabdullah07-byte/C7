@@ -22,7 +22,7 @@ import bcrypt
 import httpx
 import jwt
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Header, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Header, Request, status
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
@@ -36,7 +36,7 @@ from emergentintegrations.llm.chat import (
     UserMessage,
 )
 
-from iap.common import PLUS_FAIR_USE_LIMIT, SCAN_LIMITS
+from iap.common import PLUS_FAIR_USE_LIMIT, SCAN_LIMITS, plan_limits
 from iap.effective_plan import (
     effective_plan,
     entitlement_snapshot,
@@ -418,51 +418,247 @@ async def set_plan_removed(_: PlanIn):
 
 # ---------------------------------------------------------------------------
 # Scan quota (per-plan, 24h rolling window, server-enforced)
+#
+# Two independent buckets — BASE and REWARDED — plus an optional fair-use cap.
+#   scan_logs.kind ∈ {"base", "rewarded"}
+#   rewarded_credits — one doc per SSV-verified reward, consumed on the next scan
+#                       after the base bucket is exhausted.
 # ---------------------------------------------------------------------------
-async def _scan_count_last_24h(user_id: str) -> int:
+async def _scan_counts_last_24h(user_id: str) -> dict:
     since = datetime.now(tz=timezone.utc) - timedelta(hours=24)
-    return await db.scan_logs.count_documents(
-        {"user_id": user_id, "created_at": {"$gte": since}}
+    base = await db.scan_logs.count_documents(
+        {"user_id": user_id, "created_at": {"$gte": since}, "kind": {"$ne": "rewarded"}}
+    )
+    rewarded = await db.scan_logs.count_documents(
+        {"user_id": user_id, "created_at": {"$gte": since}, "kind": "rewarded"}
+    )
+    return {"base": base, "rewarded": rewarded, "total": base + rewarded}
+
+
+async def _rewarded_credits_available(user_id: str) -> int:
+    """Unconsumed rewarded-ad credits (24h window)."""
+    since = datetime.now(tz=timezone.utc) - timedelta(hours=24)
+    return await db.rewarded_credits.count_documents(
+        {"user_id": user_id, "consumed_at": None, "granted_at": {"$gte": since}}
     )
 
 
 async def _scan_quota_state(user: dict) -> dict:
     # Derived from verified subscriptions (source of truth), not from the cached user.plan field.
     plan = await effective_plan(db, user["id"])
-    used = await _scan_count_last_24h(user["id"])
+    limits = plan_limits(plan)
+    base_limit = int(limits["base"] or 0)
+    rewarded_limit = int(limits["rewarded"] or 0)
+    total_cap = limits["total_cap"]  # None or int
+
+    counts = await _scan_counts_last_24h(user["id"])
+    base_used = counts["base"]
+    rewarded_used = counts["rewarded"]
+    total_used = counts["total"]
+
+    base_remaining = max(0, base_limit - base_used)
+    rewarded_remaining = max(0, rewarded_limit - rewarded_used)
+    credits_available = await _rewarded_credits_available(user["id"])
+
+    # Plus users: only the total_cap matters, no rewarded flow.
     if plan == "plus":
-        limit = None
-        fair = PLUS_FAIR_USE_LIMIT
-        remaining = max(0, fair - used)
-        blocked = used >= fair
+        can_watch_ad = False
+        blocked = (total_cap is not None) and (total_used >= total_cap)
+        fair_use = total_cap or base_limit
+        total_remaining = max(0, (total_cap or base_limit) - total_used)
     else:
-        limit = SCAN_LIMITS[plan]
-        fair = limit
-        remaining = max(0, (limit or 0) - used) if limit is not None else None
-        blocked = limit is not None and used >= limit
-    # Reset time = when the oldest scan in the window falls out (i.e. +24h from its created_at)
+        # Free / Premium — base first, then rewarded via ads.
+        can_watch_ad = base_remaining == 0 and rewarded_remaining > 0
+        blocked = (
+            base_remaining == 0
+            and credits_available == 0
+            and rewarded_remaining == 0
+        )
+        fair_use = base_limit + rewarded_limit
+        total_remaining = base_remaining + rewarded_remaining
+
+    # Reset time — 24h from oldest scan in window (whichever kind).
     reset_at = None
-    if used > 0:
+    if total_used > 0:
         oldest = await db.scan_logs.find_one(
-            {"user_id": user["id"], "created_at": {"$gte": datetime.now(tz=timezone.utc) - timedelta(hours=24)}},
+            {
+                "user_id": user["id"],
+                "created_at": {"$gte": datetime.now(tz=timezone.utc) - timedelta(hours=24)},
+            },
             sort=[("created_at", 1)],
         )
         if oldest:
             reset_at = (oldest["created_at"] + timedelta(hours=24)).isoformat()
+
     return {
         "plan": plan,
-        "limit": limit,
-        "used": used,
-        "remaining": remaining,
-        "fair_use_limit": fair,
+        # New (Turn A) — canonical fields
+        "base_limit": base_limit,
+        "base_used": base_used,
+        "base_remaining": base_remaining,
+        "rewarded_limit": rewarded_limit,
+        "rewarded_used": rewarded_used,
+        "rewarded_remaining": rewarded_remaining,
+        "rewarded_credits_available": credits_available,
+        "total_used": total_used,
+        "total_remaining": total_remaining,
+        "can_watch_ad": can_watch_ad,
+        "fair_use_limit": fair_use,
         "blocked": blocked,
         "reset_at": reset_at,
+        # Legacy fields (kept for older client builds)
+        "limit": (total_cap if plan == "plus" else base_limit),
+        "used": total_used,
+        "remaining": (max(0, (total_cap or 0) - total_used) if plan == "plus" else base_remaining),
     }
 
 
 @api.get("/scan-quota")
 async def scan_quota(user=Depends(get_current_user)):
     return await _scan_quota_state(user)
+
+
+# ---------------------------------------------------------------------------
+# AdMob Rewarded-Ad SSV (Server-Side Verification)
+#
+# Flow:
+#   1. Client (JWT-auth'd) calls  POST /api/ai/rewarded/token         → { token }
+#   2. Client sets `customData` on the RewardedAd to that token, shows the ad
+#   3. AdMob calls  GET/POST /api/ai/rewarded/redeem?ad_network=…&custom_data=<token>&
+#         signature=…&key_id=…&transaction_id=…&user_id=…&…       (SSV)
+#      → we verify the token, dedupe on transaction_id, insert one rewarded_credit
+#   4. Client re-calls /api/ai/scan-meal — server consumes 1 credit if base is exhausted
+#
+# Signature verification against Google's ECDSA public keys is *stubbed* in Turn A
+# behind ADMOB_SSV_ENFORCE (default false in dev). Full ECDSA verification will be
+# activated in Turn B once ad flow is wired end-to-end on a real device.
+# ---------------------------------------------------------------------------
+ADMOB_SSV_ENFORCE = os.environ.get("ADMOB_SSV_ENFORCE", "false").lower() == "true"
+REWARD_TOKEN_TTL_MIN = int(os.environ.get("REWARD_TOKEN_TTL_MIN", "20"))
+REWARD_TOKEN_TYP = "c1_rw"
+
+
+class RewardTokenOut(BaseModel):
+    token: str
+    expires_in: int
+
+
+@api.post("/ai/rewarded/token", response_model=RewardTokenOut)
+async def rewarded_token(user=Depends(get_current_user)):
+    """Issue a short-lived signed token for the client to pass as AdMob customData."""
+    now = datetime.now(tz=timezone.utc)
+    payload = {
+        "typ": REWARD_TOKEN_TYP,
+        "sub": user["id"],
+        "iat": now,
+        "exp": now + timedelta(minutes=REWARD_TOKEN_TTL_MIN),
+        "jti": uuid.uuid4().hex,
+    }
+    tok = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+    return RewardTokenOut(token=tok, expires_in=REWARD_TOKEN_TTL_MIN * 60)
+
+
+def _verify_admob_signature(query_string: str, signature: str, key_id: str) -> bool:
+    """Verify AdMob SSV signature using Google's public ECDSA keys.
+
+    Turn A: signature verification is bypassed when ADMOB_SSV_ENFORCE=false (default).
+    Turn B / production: set ADMOB_SSV_ENFORCE=true and this will fetch and cache the
+    public keys from https://gstatic.com/admob/reward/verifier-keys.json.
+    """
+    if not ADMOB_SSV_ENFORCE:
+        return True
+    # NOTE: fetch + verify with cryptography.ecdsa — implemented fully in Turn B.
+    # Fail-closed when enforcement is on but full impl not yet wired.
+    logger.error("ADMOB_SSV_ENFORCE=true but full signature verification not yet implemented")
+    return False
+
+
+@api.api_route("/ai/rewarded/redeem", methods=["GET", "POST"])
+async def rewarded_redeem(request: Request):
+    """AdMob SSV callback. Grants exactly one rewarded scan credit per transaction_id."""
+    # AdMob may send either GET (default) or POST. Read both query params + body form.
+    params = dict(request.query_params)
+    if not params:
+        try:
+            form = await request.form()
+            params = dict(form)
+        except Exception:
+            params = {}
+
+    transaction_id: str = params.get("transaction_id") or ""
+    custom_data: str = params.get("custom_data") or ""
+    signature: str = params.get("signature") or ""
+    key_id: str = params.get("key_id") or ""
+    ad_network: str = params.get("ad_network") or ""
+    ad_unit: str = params.get("ad_unit") or ""
+    reward_amount: str = params.get("reward_amount") or ""
+    reward_item: str = params.get("reward_item") or ""
+
+    if not transaction_id or not custom_data:
+        # AdMob expects a 2xx even for bad requests to avoid infinite retries,
+        # but a 4xx is the correct signal per docs when params are malformed.
+        raise HTTPException(400, "missing_ssv_params")
+
+    # 1. Decode + validate the custom_data (our short-lived JWT).
+    try:
+        claims = jwt.decode(custom_data, JWT_SECRET, algorithms=[JWT_ALG])
+    except jwt.PyJWTError:
+        raise HTTPException(400, "invalid_custom_data")
+    if claims.get("typ") != REWARD_TOKEN_TYP:
+        raise HTTPException(400, "invalid_token_type")
+    user_id = claims.get("sub")
+    if not user_id:
+        raise HTTPException(400, "invalid_token_subject")
+
+    # 2. Verify AdMob signature (bypassed unless ADMOB_SSV_ENFORCE=true).
+    raw_qs = str(request.url.query or "")
+    if not _verify_admob_signature(raw_qs, signature, key_id):
+        raise HTTPException(400, "invalid_signature")
+
+    # 3. Confirm the user still exists.
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(400, "user_not_found")
+
+    # 4. Enforce per-plan rewarded cap BEFORE granting credit (defense-in-depth).
+    plan = await effective_plan(db, user_id)
+    limits = plan_limits(plan)
+    rewarded_cap = int(limits.get("rewarded") or 0)
+    if rewarded_cap <= 0:
+        raise HTTPException(400, "plan_disallows_rewarded")
+
+    since = datetime.now(tz=timezone.utc) - timedelta(hours=24)
+    granted_in_window = await db.rewarded_credits.count_documents(
+        {"user_id": user_id, "granted_at": {"$gte": since}}
+    )
+    if granted_in_window >= rewarded_cap:
+        raise HTTPException(429, "rewarded_cap_reached")
+
+    # 5. Insert credit — idempotent on (user_id, transaction_id).
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "transaction_id": transaction_id,
+        "ad_network": ad_network,
+        "ad_unit": ad_unit,
+        "reward_amount": reward_amount,
+        "reward_item": reward_item,
+        "key_id": key_id,
+        "signature": signature,
+        "granted_at": datetime.now(tz=timezone.utc),
+        "consumed_at": None,
+        "raw_query": raw_qs[:1024],
+    }
+    try:
+        await db.rewarded_credits.insert_one(doc)
+    except Exception as e:
+        # Duplicate key on transaction_id → idempotent success.
+        if "duplicate key" in str(e).lower():
+            return {"ok": True, "duplicate": True}
+        logger.exception("rewarded_credits insert failed")
+        raise HTTPException(500, "credit_persistence_failed")
+
+    return {"ok": True, "credit_id": doc["id"]}
 
 
 @api.delete("/auth/account")
@@ -791,7 +987,7 @@ def _parse_scan_json(text: str) -> list[FoodItem]:
 async def scan_meal(inp: ScanIn, user=Depends(get_current_user)):
     if not EMERGENT_LLM_KEY:
         raise HTTPException(500, "AI key not configured")
-    # Enforce per-plan scan limit (24h rolling window)
+    # Enforce per-plan scan limit (24h rolling window) — base first, then rewarded credit.
     quota = await _scan_quota_state(user)
     if quota["blocked"]:
         raise HTTPException(
@@ -799,19 +995,80 @@ async def scan_meal(inp: ScanIn, user=Depends(get_current_user)):
             detail={
                 "error": "scan_limit_reached",
                 "plan": quota["plan"],
-                "limit": quota["fair_use_limit"],
+                "base_limit": quota["base_limit"],
+                "base_used": quota["base_used"],
+                "rewarded_limit": quota["rewarded_limit"],
+                "rewarded_used": quota["rewarded_used"],
+                "can_watch_ad": quota["can_watch_ad"],
+                "fair_use_limit": quota["fair_use_limit"],
                 "reset_at": quota["reset_at"],
                 "message": (
-                    f"You've reached your daily scan limit ({quota['fair_use_limit']} scans / 24h) "
-                    f"for the {quota['plan']} plan."
+                    f"You've hit today's scan cap ({quota['fair_use_limit']} scans/24h) "
+                    f"on the {quota['plan']} plan."
                 ),
             },
         )
+
+    # Determine which bucket this scan will draw from.
+    # Plus: always "base" (single bucket). Free/Premium: base while available, else rewarded credit.
+    scan_kind: str = "base"
+    consumed_credit_id: Optional[str] = None
+    if quota["plan"] != "plus" and quota["base_remaining"] == 0:
+        # Must consume a rewarded credit. Base is exhausted.
+        if quota["rewarded_credits_available"] == 0:
+            # Client should have shown an ad and waited for SSV. Ask them to watch (or upgrade).
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error": "base_limit_reached",
+                    "plan": quota["plan"],
+                    "base_limit": quota["base_limit"],
+                    "base_used": quota["base_used"],
+                    "rewarded_limit": quota["rewarded_limit"],
+                    "rewarded_used": quota["rewarded_used"],
+                    "rewarded_remaining": quota["rewarded_remaining"],
+                    "can_watch_ad": quota["can_watch_ad"],
+                    "reset_at": quota["reset_at"],
+                    "message": (
+                        "You've used your free daily scans. Watch a short ad to earn another scan, "
+                        "or upgrade to Premium/Plus."
+                    ),
+                },
+            )
+        # Atomically claim the oldest unconsumed credit.
+        since = datetime.now(tz=timezone.utc) - timedelta(hours=24)
+        credit = await db.rewarded_credits.find_one_and_update(
+            {
+                "user_id": user["id"],
+                "consumed_at": None,
+                "granted_at": {"$gte": since},
+            },
+            {"$set": {"consumed_at": datetime.now(tz=timezone.utc)}},
+            sort=[("granted_at", 1)],
+        )
+        if not credit:
+            # Lost a race — someone else consumed it. Treat as limit reached.
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error": "base_limit_reached",
+                    "plan": quota["plan"],
+                    "message": "No rewarded scan credits available. Watch an ad first.",
+                },
+            )
+        consumed_credit_id = credit.get("id")
+        scan_kind = "rewarded"
+
     raw_b64 = _strip_data_uri(inp.image_b64)
     # sanity check
     try:
         base64.b64decode(raw_b64[:200], validate=False)
     except Exception:
+        # Refund the rewarded credit if we consumed one — the scan never happened.
+        if consumed_credit_id:
+            await db.rewarded_credits.update_one(
+                {"id": consumed_credit_id}, {"$set": {"consumed_at": None, "refund_reason": "invalid_image"}}
+            )
         raise HTTPException(400, "Invalid image data")
 
     async def _run_once() -> str:
@@ -848,6 +1105,11 @@ async def scan_meal(inp: ScanIn, user=Depends(get_current_user)):
         if attempt == 0:
             await asyncio.sleep(1.0)
     else:
+        # Refund the rewarded credit on total AI failure (fair to the user).
+        if consumed_credit_id:
+            await db.rewarded_credits.update_one(
+                {"id": consumed_credit_id}, {"$set": {"consumed_at": None, "refund_reason": "ai_failed"}}
+            )
         logger.exception("scan failed after retries")
         raise HTTPException(502, f"AI vision failed: {last_exc}")
 
@@ -859,6 +1121,8 @@ async def scan_meal(inp: ScanIn, user=Depends(get_current_user)):
             "user_id": user["id"],
             "created_at": datetime.now(tz=timezone.utc),
             "items_count": len(items),
+            "kind": scan_kind,
+            "credit_id": consumed_credit_id,
         }
     )
     return ScanOut(items=items)
@@ -1339,6 +1603,22 @@ async def _ensure_iap_indexes():
     )
     await db.iap_events.create_index(
         [("user_id", 1), ("received_at", -1)], sparse=True, name="events_by_user"
+    )
+
+    # rewarded_credits — 1 doc per SSV redemption. Unique per transaction_id (idempotency).
+    await db.rewarded_credits.create_index(
+        [("transaction_id", 1)],
+        unique=True,
+        partialFilterExpression={"transaction_id": {"$type": "string"}},
+        name="reward_tx_uniq",
+    )
+    await db.rewarded_credits.create_index(
+        [("user_id", 1), ("consumed_at", 1), ("granted_at", 1)],
+        name="reward_consume_lookup",
+    )
+    await db.rewarded_credits.create_index(
+        [("user_id", 1), ("granted_at", -1)],
+        name="reward_history",
     )
 
 

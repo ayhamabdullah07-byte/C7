@@ -1,0 +1,36 @@
+{
+  "summary": "Turn A backend verification COMPLETE. 101/102 backend tests pass (the 1 error is pre-existing missing fixture in test_c1_api.py — flagged by E1 as unrelated legacy). All 10 items from the review checklist verified via targeted Turn A suites (test_iap_products, test_admob_ssv, test_plans_scans) + a new independent verification suite (test_turn_a_verification.py) that hits the public EXPO_PUBLIC_BACKEND_URL. Scan-quota shape complete, Free/Premium/Plus limits enforced correctly, rewarded token & SSV callback (missing/invalid/expired/wrong-typ/unknown-user/plus-plan/cap-reached/valid/idempotent-replay) all behave per spec, end-to-end rewarded flow works, credit is refunded on invalid image, and regressions (auth, meals, dashboard, recommend Plus-gate, entitlement, removed 410 stubs, IAP 501 stubs) all green.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "tests/test_c1_api.py::test_scan_meal_happy_path", "issue": "Pre-existing missing pytest fixture `real_food_b64` — not related to Turn A but should be cleaned up (or the test removed) to keep the suite green."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": [], "react_native_issues": []},
+  "test_report_links": [
+    "/app/test_reports/pytest/pytest_iteration7.xml",
+    "/app/test_reports/pytest/pytest_turn_a_verification.xml",
+    "/app/test_reports/pytest/pytest_full_iteration7.xml",
+    "/app/backend/tests/test_turn_a_verification.py"
+  ],
+  "action_items": [
+    "Clean up or remove test_c1_api.py::test_scan_meal_happy_path (missing real_food_b64 fixture). Everything else on Turn A is green — proceed to Turn B (native AdMob SDK wiring)."
+  ],
+  "critical_code_review_comments": [
+    "server.py is ~1650 LOC. Consider splitting rewarded / scan / IAP / chat modules for readability in a future refactor pass (not blocking).",
+    "_verify_admob_signature currently fail-closes when ADMOB_SSV_ENFORCE=true because the ECDSA impl is deferred to Turn B. That is intentional and safe (fail-closed), but flip must land in Turn B before enabling in prod.",
+    "SSV endpoint returns HTTP 4xx on bad params — AdMob will retry. This is the correct signal per docs; noted for awareness.",
+    "Refund path on `asyncio.TimeoutError`: the code has `for/else` after 2 attempts but on catch it never sets `collected` — logic is correct only because break skips the else. Verified via tests that the else branch handles refund + 502. Fine."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_turn_a_verification.py (new)",
+    "/app/test_result.md (appended iteration 7 section)",
+    "/app/test_reports/iteration_7.json (new)"
+  ],
+  "success_rate": {"backend": "99% (101/102, single unrelated pre-existing legacy fixture error)", "frontend": "N/A (skipped per request)"},
+  "seed_data_creation": "Test users auto-registered with epoch timestamps (TEST_turnA_*, TEST_ssv_*, TEST_plan_*). Each test cleans up its own scan_logs / rewarded_credits collections and account is deleted on module teardown.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Turn A backend is fully verified. When Turn B (frontend AdMob SDK integration) is implemented, focus on: (1) frontend calling POST /api/ai/rewarded/token before showing ad, (2) setting the returned token as customData on the RewardedAd, (3) UI reacting to 429 base_limit_reached by prompting 'Watch ad' vs 429 scan_limit_reached showing 'Upgrade' CTA, (4) enabling ADMOB_SSV_ENFORCE=true only after ECDSA verify_admob_signature is fully implemented and tested against Google's public-key JWKS.",
+  "rca_of_issue": "N/A — no bugs found. Implementation matches spec exactly."
+}

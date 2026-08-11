@@ -67,9 +67,9 @@ See `/app/memory/test_credentials.md`.
 ## Turn A — AdMob SSV & Granular Scan Limits (this iteration)
 - **Bundle ID unified** — iOS + Android → `com.ayhamabdullah.c1` (user-owned).
 - **Product map** (real IDs, USD base prices — store returns localized prices):
-  - Apple: `com.ayhamabdullah.c1.premium.monthly` ($1.99/mo),
-           `com.ayhamabdullah.c1.plus.monthly` ($4.99/mo),
-           `com.ayhamabdullah.c1.plus.annual` ($34.99/yr)
+  - Apple: `com.ayhamabdullah.c1.premium.monthly` (€1.99/mo),
+           `com.ayhamabdullah.c1.plus.monthly` (€4.99/mo),
+           `com.ayhamabdullah.c1.plus.annual` (€54.99/yr)
   - Google: `c1_premium/monthly`, `c1_plus/monthly`, `c1_plus/annual`
 - **Scan limits** — split into BASE + REWARDED buckets (24h rolling):
   - Free:    3 base + 2 rewarded  = 5 max/day (ads unlock rewarded)

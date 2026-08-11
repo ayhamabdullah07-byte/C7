@@ -1,13 +1,13 @@
 """Shared types, product mapping, and idempotency helpers for the IAP subsystem.
 
 Product identifiers use the real bundle ID `com.ayhamabdullah.c1`. Actual App Store
-Connect / Play Console product IDs will be created by the user during Phase 2/3.
+Connect / Play Console product IDs must be created by the operator before purchases
+can complete (see /app/memory/PRD.md for the Play Console checklist).
 
-Base pricing (USD, informational only — never displayed as the actual purchase price;
-the store returns real localized prices at runtime):
-  Premium Monthly   $1.99 / month
-  Plus    Monthly   $4.99 / month
-  Plus    Annual    $34.99 / year
+Base prices shown in EUR — the store returns real localized prices at runtime:
+  Premium Monthly   €1.99  / month
+  Plus    Monthly   €4.99  / month
+  Plus    Annual    €54.99 / year
 """
 from __future__ import annotations
 

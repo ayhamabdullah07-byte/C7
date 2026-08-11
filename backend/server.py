@@ -523,7 +523,28 @@ async def scan_quota(user=Depends(get_current_user)):
 # behind ADMOB_SSV_ENFORCE (default false in dev). Full ECDSA verification will be
 # activated in Turn B once ad flow is wired end-to-end on a real device.
 # ---------------------------------------------------------------------------
+# Two independent kill-switches control production safety:
+#   ADMOB_SSV_ENFORCE       — when true, requires a valid ECDSA signature from
+#                             Google's verifier keys. Full ECDSA activation is
+#                             deferred until AdMob console verification is
+#                             completed; when true today, this endpoint refuses
+#                             ALL requests (fail-closed).
+#   ADMOB_ALLOW_DEV_REWARD  — when true, accepts a dev-only synthetic signature
+#                             so the reward flow can be exercised in Expo Go /
+#                             web preview. **DEFAULT FALSE.** Set to true ONLY
+#                             in dev/staging; leave unset in production. The
+#                             frontend never sends a real reward until AdMob
+#                             SSV is live — so the redeem endpoint is only
+#                             reachable in prod when ADMOB_SSV_ENFORCE=true.
+#
+# Reward integrity guarantees regardless of the flags:
+#   • Idempotency: unique index on rewarded_credits.transaction_id
+#   • Per-plan cap check inside the endpoint (defense-in-depth)
+#   • JWT-signed custom_data pinned to a real user_id (short-lived)
 ADMOB_SSV_ENFORCE = os.environ.get("ADMOB_SSV_ENFORCE", "false").lower() == "true"
+ADMOB_ALLOW_DEV_REWARD = (
+    os.environ.get("ADMOB_ALLOW_DEV_REWARD", "false").lower() == "true"
+)
 REWARD_TOKEN_TTL_MIN = int(os.environ.get("REWARD_TOKEN_TTL_MIN", "20"))
 REWARD_TOKEN_TYP = "c1_rw"
 
@@ -549,17 +570,42 @@ async def rewarded_token(user=Depends(get_current_user)):
 
 
 def _verify_admob_signature(query_string: str, signature: str, key_id: str) -> bool:
-    """Verify AdMob SSV signature using Google's public ECDSA keys.
+    """Verify an AdMob SSV request signature using Google's public ECDSA keys.
 
-    Turn A: signature verification is bypassed when ADMOB_SSV_ENFORCE=false (default).
-    Turn B / production: set ADMOB_SSV_ENFORCE=true and this will fetch and cache the
-    public keys from https://gstatic.com/admob/reward/verifier-keys.json.
+    Returns True only when the request either (a) carries a valid Google ECDSA
+    signature or (b) is a dev-mode synthetic request AND `ADMOB_ALLOW_DEV_REWARD`
+    is true. In production both flags must be set correctly:
+        ADMOB_SSV_ENFORCE=true and ADMOB_ALLOW_DEV_REWARD=false
+    → Only real AdMob-signed callbacks are accepted.
+
+    NOTE: The ECDSA verifier (fetching + caching Google's public keys from
+    https://gstatic.com/admob/reward/verifier-keys.json) will be implemented
+    once the user's AdMob console verification is complete. Until then, this
+    function fails-closed when ADMOB_SSV_ENFORCE=true (see logic below).
     """
-    if not ADMOB_SSV_ENFORCE:
+    # 1. Real production path — ECDSA verification against Google's keys.
+    if ADMOB_SSV_ENFORCE:
+        # Real implementation lands after AdMob console verification is done.
+        # Fail-closed until then so a mis-flag never grants unverified rewards.
+        logger.error(
+            "ADMOB_SSV_ENFORCE=true but ECDSA verification is not wired yet. "
+            "Refusing to grant reward. Complete AdMob verification and enable the "
+            "verifier before flipping this flag in production."
+        )
+        return False
+
+    # 2. Dev/staging path — accept synthetic signatures only when explicitly opted-in.
+    #    Never bypass in production; the default is deny.
+    if ADMOB_ALLOW_DEV_REWARD:
         return True
-    # NOTE: fetch + verify with cryptography.ecdsa — implemented fully in Turn B.
-    # Fail-closed when enforcement is on but full impl not yet wired.
-    logger.error("ADMOB_SSV_ENFORCE=true but full signature verification not yet implemented")
+
+    # 3. Locked down. No signature verification is currently possible AND dev
+    #    bypass is disabled → refuse the reward. This is the safe default.
+    logger.warning(
+        "Rewarded redeem attempted while ADMOB_SSV_ENFORCE=false and "
+        "ADMOB_ALLOW_DEV_REWARD=false. Refusing to grant reward — set "
+        "ADMOB_ALLOW_DEV_REWARD=true in dev only, or enable SSV in prod."
+    )
     return False
 
 
@@ -600,10 +646,21 @@ async def rewarded_redeem(request: Request):
     if not user_id:
         raise HTTPException(400, "invalid_token_subject")
 
-    # 2. Verify AdMob signature (bypassed unless ADMOB_SSV_ENFORCE=true).
+    # 2. Verify AdMob signature. Production requires a valid Google ECDSA signature;
+    #    dev builds may opt-in to a synthetic bypass via ADMOB_ALLOW_DEV_REWARD.
     raw_qs = str(request.url.query or "")
     if not _verify_admob_signature(raw_qs, signature, key_id):
-        raise HTTPException(400, "invalid_signature")
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "reward_verification_disabled",
+                "message": (
+                    "Reward verification is not currently enabled on this server. "
+                    "Complete AdMob SSV console verification and set "
+                    "ADMOB_SSV_ENFORCE=true, or enable ADMOB_ALLOW_DEV_REWARD in dev only."
+                ),
+            },
+        )
 
     # 3. Confirm the user still exists.
     user = await db.users.find_one({"id": user_id}, {"_id": 0})

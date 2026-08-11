@@ -112,9 +112,20 @@ export function LimitDialog(props: LimitDialogProps) {
         return;
       }
       if (result.status === 'sdk_unavailable') {
-        // Expo Go / preview — SDK isn't linked. Fall back to a dev-only SSV redeem
-        // so the flow can be verified end-to-end. In a real production build,
-        // AdMob's server (not the client) hits /rewarded/redeem after a real reward.
+        // Expo Go / preview build — real AdMob SDK not linked.
+        // Dev-only reward bypass: only runs inside __DEV__ AND only reaches
+        // the backend when ADMOB_ALLOW_DEV_REWARD=true is set server-side.
+        // In production this branch never grants a reward; the user sees the
+        // "requires native build" message instead.
+        // eslint-disable-next-line no-undef
+        const inDev = typeof __DEV__ !== 'undefined' && (__DEV__ as boolean);
+        if (!inDev) {
+          setBusy('idle');
+          setAdError(
+            'Rewarded ads require a production Android build with AdMob configured. Coming soon on real devices.',
+          );
+          return;
+        }
         setBusy('redeeming');
         try {
           const txId = `dev-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
@@ -123,9 +134,14 @@ export function LimitDialog(props: LimitDialogProps) {
           props.onRewardGranted();
         } catch (e: any) {
           setBusy('idle');
-          setAdError(
-            e?.detail || e?.message || t('adFailed'),
-          );
+          // Surface the server's helpful message when dev bypass is disabled.
+          const detail = e?.detail;
+          const msg =
+            detail?.message ||
+            (typeof detail === 'string' ? detail : null) ||
+            e?.message ||
+            t('adFailed');
+          setAdError(msg);
         }
         return;
       }

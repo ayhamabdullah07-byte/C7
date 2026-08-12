@@ -40,23 +40,23 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-  [
-    "expo-build-properties",
-    {
-      "android": {
-        "kotlinVersion": "2.1.20",
-        "compileSdkVersion": 36,
-        "targetSdkVersion": 36,
-        "minSdkVersion": 24,
-        "buildToolsVersion": "36.0.0"
-      },
-      "ios": {
-        "deploymentTarget": "15.1"
-      }
-    }
-  ],
-  "expo-router",
-  "expo-localization",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "kotlinVersion": "2.1.20",
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "minSdkVersion": 24,
+            "buildToolsVersion": "36.0.0"
+          },
+          "ios": {
+            "deploymentTarget": "15.1"
+          }
+        }
+      ],
+      "expo-router",
+      "expo-localization",
       [
         "expo-camera",
         {
@@ -84,7 +84,9 @@
           "androidAppId": "ca-app-pub-3656632924764645~6219258098",
           "iosAppId": "ca-app-pub-3940256099942544~1458002511",
           "userTrackingUsageDescription": "This identifier will be used to deliver personalized ads to you.",
-          "skAdNetworkItems": ["cstr6suwn9.skadnetwork"]
+          "skAdNetworkItems": [
+            "cstr6suwn9.skadnetwork"
+          ]
         }
       ]
     ],

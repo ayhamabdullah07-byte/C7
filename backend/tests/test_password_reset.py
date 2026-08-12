@@ -16,7 +16,7 @@ from pymongo import MongoClient
 
 load_dotenv("/app/backend/.env")
 
-BASE = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://c1-meal-scanner.preview.emergentagent.com").rstrip("/")
+BASE = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://frontend-verify-9.preview.emergentagent.com").rstrip("/")
 MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
 

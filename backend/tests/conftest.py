@@ -11,7 +11,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 load_dotenv("/app/backend/.env")
 
-BASE = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://c1-meal-scanner.preview.emergentagent.com").rstrip("/")
+BASE = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://frontend-verify-9.preview.emergentagent.com").rstrip("/")
 
 @pytest.fixture(scope="session")
 def base_url():
